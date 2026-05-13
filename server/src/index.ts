@@ -38,7 +38,20 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+
+
 app.use("/api/v1", v1Routes);
+
+
+if (process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging") {
+  const buildPath = path.join(__dirname, "..", "..", "client", "dist");
+  app.use(express.static(buildPath));
+
+  app.get("*", (req, res) => {
+    res.sendFile(path.resolve(buildPath, "index.html"));
+  });
+}
+
 
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
