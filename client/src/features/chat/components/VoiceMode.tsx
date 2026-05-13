@@ -102,10 +102,21 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
     transcript: '',
   });
 
-  const [voiceProperties, setVoiceProperties] = useState<Property[]>([]);
-  const [seenPropertyIds, setSeenPropertyIds] = useState<Set<string>>(
-    new Set(),
-  );
+  const [voiceProperties, setVoiceProperties] = useState<Property[]>(() => {
+    const saved = sessionStorage.getItem('voiceProperties');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [seenPropertyIds, setSeenPropertyIds] = useState<Set<string>>(() => {
+    const saved = sessionStorage.getItem('seenPropertyIds');
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  });
+
+  // Save to session storage whenever they change
+  useEffect(() => {
+    sessionStorage.setItem('voiceProperties', JSON.stringify(voiceProperties));
+    sessionStorage.setItem('seenPropertyIds', JSON.stringify(Array.from(seenPropertyIds)));
+  }, [voiceProperties, seenPropertyIds]);
 
   const roomRef = useRef<Room | null>(null);
   const sessionConfigRef = useRef<VoiceSessionConfig | null>(null);
@@ -139,9 +150,12 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
         );
       }
 
+      const sessionId = localStorage.getItem('chatSessionId') || crypto.randomUUID();
+      const identity = `web-user-${crypto.randomUUID().slice(0, 8)}`;
+
       const config = await createVoiceToken({
-        sessionId: crypto.randomUUID(),
-        identity: `web-user-${crypto.randomUUID().slice(0, 8)}`,
+        sessionId,
+        identity,
       }).unwrap();
 
       sessionConfigRef.current = config;
@@ -178,9 +192,6 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
           isListening: false,
           transcript: '',
         }));
-
-        setVoiceProperties([]);
-        setSeenPropertyIds(new Set());
       });
 
       room.on(
@@ -300,6 +311,29 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   };
 
   useEffect(() => {
+    const handleNewSession = () => {
+      disconnectVoice();
+      setVoiceProperties([]);
+      setSeenPropertyIds(new Set());
+      sessionStorage.removeItem('voiceProperties');
+      sessionStorage.removeItem('seenPropertyIds');
+      setState({
+        isConnected: false,
+        isConnecting: false,
+        isSpeaking: false,
+        isListening: false,
+        error: null,
+        transcript: '',
+      });
+    };
+
+    window.addEventListener('chatbot:new-chat', handleNewSession);
+    return () => {
+      window.removeEventListener('chatbot:new-chat', handleNewSession);
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (roomRef.current) {
         roomRef.current.disconnect();
@@ -330,12 +364,13 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
 
       {/* Connected State */}
       {state.isConnected && (
-        <div className="flex flex-1 flex-col overflow-y-auto p-4 sm:p-5">
-          {/* Status and End Button */}
-          <div className="mb-5 flex shrink-0 items-center justify-between">
-            <div className="flex items-center gap-2">
+        <div className="flex flex-1 flex-col">
+          <div className="flex flex-1 flex-col overflow-y-auto px-5 py-4">
+          {/* Status and End Button - Ultra compact */}
+          <div className="mb-2 flex shrink-0 items-center justify-between">
+            <div className="flex items-center gap-1">
               <div 
-                className="h-2 w-2 rounded-full animate-pulse" 
+                className="h-1.5 w-1.5 rounded-full animate-pulse" 
                 style={{ backgroundColor: '#6495ce' }}
               />
 
@@ -349,77 +384,31 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
               className="
                 inline-flex items-center gap-2
                 rounded-full bg-red-500
-                px-4 py-2 text-sm font-medium text-white
+                px-3 py-1.5 text-xs font-medium text-white
                 transition-all duration-200
                 hover:bg-red-600 hover:shadow-lg
                 active:scale-95
               "
             >
-              <PhoneOff className="h-4 w-4" />
+              <PhoneOff className="h-3 w-3" />
               End
             </button>
           </div>
 
-          {/* Transcript */}
-          <div className="mb-5 shrink-0 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-slate-500">
-                Conversation
-              </p>
-
-              <div className="flex items-center gap-2">
-                <div 
-                  className="h-2 w-2 rounded-full animate-pulse" 
-                  style={{ backgroundColor: '#10b981' }}
-                />
-                <span className="text-xs text-slate-400">
-                  Live
-                </span>
-              </div>
+          {/* Compact Visualizer - Always show when connected */}
+          <div className="flex w-full justify-center py-2">
+            <div style={{ width: '100%', transformOrigin: 'center' }}>
+              <VoiceVisualizer
+                isActive={true}
+                isSpeaking={state.isSpeaking}
+                isConnecting={false}
+              />
             </div>
-
-            <div
-              className="
-                rounded-3xl
-                border border-white/40
-                bg-white/70
-                backdrop-blur-xl
-                p-4
-                shadow-[0_8px_30px_rgba(0,0,0,0.05)]
-              "
-            >
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                {state.transcript ||
-                  'Waiting for conversation...'}
-              </p>
-            </div>
-          </div>
-
-          {/* Voice Visualizer with integrated tips area */}
-          <div
-            className="flex min-h-[250px] w-full flex-1 flex-col items-center justify-center py-6"
-          >
-            <VoiceVisualizer
-              isActive={
-                state.isConnected || state.isConnecting
-              }
-              isSpeaking={state.isSpeaking}
-              isConnecting={state.isConnecting}
-            />
-            
-            {/* Empty State - Blended in nicely */}
-            {voiceProperties.length === 0 && (
-              <div className="mt-8 text-center max-w-xs">
-                <p className="text-[13px] font-medium leading-relaxed text-slate-500">
-                  Tell Rahul your preferred location, budget, amenities, or apartment type and recommendations will seamlessly appear here.
-                </p>
-              </div>
-            )}
           </div>
 
           {/* Recommended Properties */}
           {voiceProperties.length > 0 && (
-            <div className="mt-5 shrink-0 space-y-3">
+            <div className="mt-1 shrink-0 space-y-3">
               <div className="flex items-center gap-2">
                 <p className="text-sm font-semibold text-slate-800">
                   Recommended Properties
@@ -439,82 +428,136 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
               />
             </div>
           )}
-        </div>
-      )}
-
-      {/* Idle State */}
-      {!state.isConnected && !state.isConnecting && (
-        <div className="flex flex-1 flex-col items-center justify-center px-5 py-8 text-center">
-          <div
-            className="
-              w-full max-w-md
-              rounded-[2rem]
-              border border-white/40
-              bg-white/75
-              p-8
-              backdrop-blur-2xl
-              shadow-[0_15px_45px_rgba(0,0,0,0.08)]
-            "
-          >
-            <VoiceVisualizer
-              isActive={false}
-              isSpeaking={false}
-              isConnecting={false}
-            />
-
-            <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-900">
-              Voice Assistant
-            </h2>
-
-            <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-slate-500">
-              Speak naturally with Rahul to discover
-              properties tailored to your lifestyle,
-              location, and budget preferences.
-            </p>
-
-            <button
-              onClick={connectToVoice}
-              className="
-                mt-7 inline-flex items-center gap-2
-                rounded-full
-                px-6 py-3
-                font-medium text-white
-                transition-all duration-200
-                hover:-translate-y-0.5
-                hover:shadow-[0_15px_35px_rgba(100,149,206,0.35)]
-                active:scale-95
-              "
-              style={{
-                backgroundColor: '#6495ce',
-                boxShadow: '0 10px 25px rgba(100, 149, 206, 0.25)'
-              }}
-            >
-              <Phone className="h-4 w-4" />
-              Start Voice Session
-            </button>
           </div>
         </div>
       )}
 
-      {/* Connecting Overlay */}
-      {state.isConnecting && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-md">
-          <div className="space-y-4 text-center">
-            <div 
-              className="mx-auto h-14 w-14 animate-spin rounded-full border-[3px] border-slate-200"
-              style={{ borderTopColor: '#6495ce' }}
-            />
+      {/* Idle State / Connecting State (when not connected) */}
+      {!state.isConnected && (
+        <div className="flex flex-1 flex-col relative">
+          {voiceProperties.length > 0 ? (
+            <div className="flex flex-col items-center justify-center flex-1 w-full py-6 px-5">
+              <div className="w-full flex justify-center mb-2">
+                <VoiceVisualizer
+                  isActive={false}
+                  isSpeaking={false}
+                  isConnecting={state.isConnecting}
+                />
+              </div>
 
-            <div>
-              <p className="text-base font-semibold text-slate-800">
-                Connecting...
-              </p>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Preparing voice session
-              </p>
+              {state.isConnecting ? (
+                <div className="flex flex-col items-center mt-2">
+                  <div 
+                    className="mx-auto h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200"
+                    style={{ borderTopColor: '#6495ce' }}
+                  />
+                  <p className="mt-3 text-xs font-medium text-slate-600">Connecting to voice...</p>
+                </div>
+              ) : (
+                <button
+                  onClick={connectToVoice}
+                  className="
+                    inline-flex items-center gap-2
+                    rounded-full
+                    px-4 py-2
+                    font-medium text-white text-sm
+                    transition-all duration-200
+                    active:scale-95
+                  "
+                  style={{
+                    backgroundColor: '#6495ce',
+                    boxShadow: '0 15px 30px rgba(100, 149, 206, 0.3)'
+                  }}
+                >
+                  Continue
+                </button>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full px-4 min-h-[300px]">
+              <div
+                className="
+                  w-full max-w-md
+                  rounded-[2rem]
+                  border border-white/40
+                  bg-white/75
+                  p-8
+                  backdrop-blur-2xl
+                  shadow-[0_15px_45px_rgba(0,0,0,0.08)]
+                "
+              >
+                <VoiceVisualizer
+                  isActive={false}
+                  isSpeaking={false}
+                  isConnecting={state.isConnecting}
+                />
+
+                <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-900">
+                  Voice Assistant
+                </h2>
+
+                <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-slate-500">
+                  Speak naturally with Shriya to discover
+                  properties tailored to your lifestyle,
+                  location, and budget preferences.
+                </p>
+
+                <button
+                  onClick={connectToVoice}
+                  disabled={state.isConnecting}
+                  className={`
+                    mt-7 inline-flex items-center gap-2
+                    rounded-full
+                    px-6 py-3
+                    font-medium text-white
+                    transition-all duration-200
+                    hover:-translate-y-0.5
+                    hover:shadow-[0_15px_35px_rgba(100,149,206,0.35)]
+                    active:scale-95
+                    ${state.isConnecting ? 'opacity-80 cursor-not-allowed' : ''}
+                  `}
+                  style={{
+                    backgroundColor: '#6495ce',
+                    boxShadow: '0 10px 25px rgba(100, 149, 206, 0.25)'
+                  }}
+                >
+                  {state.isConnecting ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Phone className="h-4 w-4" />
+                      Start Voice Session
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Recommended Properties History */}
+          {voiceProperties.length > 0 && (
+            <div className="mt-2 px-4 mx-auto w-full max-w-md shrink-0 space-y-3 text-left">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-slate-800">
+                  Recommended Properties
+                </p>
+                <span 
+                  className="rounded-full px-2 py-1 text-xs font-semibold text-white"
+                  style={{ backgroundColor: '#6495ce' }}
+                >
+                  {voiceProperties.length}
+                </span>
+              </div>
+
+              <PropertyCarousel
+                properties={voiceProperties}
+                formatPrice={formatPrice}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

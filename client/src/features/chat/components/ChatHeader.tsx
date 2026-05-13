@@ -13,7 +13,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onNewChat }) => {
           <Home className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-lg font-semibold tracking-tight text-foreground">Rahul</h1>
+          <h1 className="text-lg font-semibold tracking-tight text-foreground">Shriya</h1>
           <p className="text-sm text-muted-foreground">Your Property Advisor</p>
         </div>
       </div>

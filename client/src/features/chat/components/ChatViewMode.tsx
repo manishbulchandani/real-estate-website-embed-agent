@@ -1,10 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MessageSquare, Mic as MicIcon, Plus } from 'lucide-react';
 import { ChatApp } from '../ChatApp';
 import { VoiceMode } from './VoiceMode';
 
 export const ChatViewMode: React.FC = () => {
-  const [mode, setMode] = useState<'text' | 'voice'>('text');
+  const [mode, setMode] = useState<'text' | 'voice'>(() => {
+    const savedMode = sessionStorage.getItem('chatMode');
+    return (savedMode === 'voice' || savedMode === 'text') ? savedMode : 'text';
+  });
+
+  useEffect(() => {
+    sessionStorage.setItem('chatMode', mode);
+  }, [mode]);
 
   const formatPrice = (price: number) => {
     if (price >= 10000000) {
@@ -16,32 +23,30 @@ export const ChatViewMode: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden text-foreground">
+    <div className="flex h-full min-h-0 w-full flex-col text-foreground">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/70 bg-white/88 px-4 py-3 shadow-sm backdrop-blur-xl sm:px-5">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-sm shadow-primary/10">
             <MessageSquare className="h-4.5 w-4.5" />
           </div>
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">Rahul</h1>
+            <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">Shriya</h1>
             <p className="truncate text-xs text-muted-foreground">Property assistant</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {mode === 'text' && (
-            <button
-              onClick={() => {
-                const event = new CustomEvent('chatbot:new-chat');
-                window.dispatchEvent(event);
-              }}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-white text-muted-foreground transition-all hover:-translate-y-0.5 hover:border-primary hover:text-primary hover:shadow-sm"
-              aria-label="New chat"
-              title="New chat"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          )}
+          <button
+            onClick={() => {
+              const event = new CustomEvent('chatbot:new-chat');
+              window.dispatchEvent(event);
+            }}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-white text-muted-foreground transition-all hover:-translate-y-0.5 hover:border-primary hover:text-primary hover:shadow-sm"
+            aria-label="New chat / session"
+            title="New session"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
 
           <div className="inline-flex rounded-full border border-border bg-background p-1 shadow-sm">
             <button
@@ -70,7 +75,7 @@ export const ChatViewMode: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
+      <div className="flex min-h-0 flex-1 flex-col bg-transparent">
         {mode === 'text' ? <ChatApp /> : <VoiceMode formatPrice={formatPrice} />}
       </div>
     </div>

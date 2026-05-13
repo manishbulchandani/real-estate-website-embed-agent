@@ -117,7 +117,7 @@
 
     const iframe = document.createElement('iframe');
     iframe.src = 'http://localhost:5173';
-    iframe.title = 'Rahul';
+    iframe.title = 'Shriya';
     iframe.allow = 'clipboard-read; clipboard-write; microphone; camera';
 
     windowDiv.appendChild(iframe);
@@ -144,6 +144,13 @@
             setTimeout(() => {
                 if (!isOpen) windowDiv.style.display = 'none';
             }, 500);
+        }
+    });
+
+    // Handle messages from the iframe (e.g. navigation events)
+    window.addEventListener('message', (event) => {
+        if (event.data?.type === 'chatbot:navigate' && event.data?.url) {
+            window.open(event.data.url, '_blank');
         }
     });
 

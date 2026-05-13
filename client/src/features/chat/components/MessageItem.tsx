@@ -39,7 +39,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ msg, formatPrice }) =>
           {isUser ? <User className="h-3.5 w-3.5 text-white" /> : <Bot className="h-3.5 w-3.5 text-white" />}
         </div>
         <span className="text-xs font-medium text-muted-foreground/80">
-          {isUser ? 'You' : 'Rahul'}
+          {isUser ? 'You' : 'Shriya'}
         </span>
       </div>
 

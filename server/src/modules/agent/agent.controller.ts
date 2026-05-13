@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { agentApp } from "./agent";
 import { Project } from "../properties/models/project.model";
 import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
+import { ChatSession } from "./models/chatSession.model";
 
 export const chatWithAgent = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -85,7 +86,7 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
                     fullProp.project = { ...fullProp.project, webpageUrl: String(proj.webpageUrl) };
                   }
                 } catch (e) {
-                  console.warn(`[Agent] Failed to fetch project webpageUrl for project ${fullProp.project.id}:`, e?.message || e);
+                  console.warn(`[Agent] Failed to fetch project webpageUrl for project ${fullProp.project.id}:`, (e as Error)?.message || e);
                   // ignore DB lookup failures and continue
                 }
               }
@@ -120,6 +121,33 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
       return 0;
     });
 
+    const persistedMessages = [
+      ...messageTexts.map((content) => ({
+        id: crypto.randomUUID(),
+        sender: "user" as const,
+        type: "text" as const,
+        content,
+      })),
+      ...outputMessages.map((message) => ({
+        id: crypto.randomUUID(),
+        sender: "agent" as const,
+        type: message.type === "properties" ? ("properties" as const) : ("text" as const),
+        content: typeof message.content === "string" ? message.content : undefined,
+        data: message.data,
+      })),
+    ];
+
+    if (persistedMessages.length > 0) {
+      await ChatSession.findOneAndUpdate(
+        { sessionId },
+        {
+          $setOnInsert: { sessionId },
+          $push: { messages: { $each: persistedMessages } },
+        },
+        { upsert: true, new: true },
+      ).exec();
+    }
+
     res.status(200).json({
       success: true,
       messages: outputMessages,
@@ -135,6 +163,15 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
     const { sessionId } = req.params;
     if (!sessionId) {
       res.status(400).json({ success: false, error: "sessionId is required" });
+      return;
+    }
+
+    const persistedSession = await ChatSession.findOne({ sessionId }).lean().exec();
+    if (persistedSession?.messages?.length) {
+      res.status(200).json({
+        success: true,
+        messages: persistedSession.messages,
+      });
       return;
     }
 
@@ -195,7 +232,7 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
                     console.log(`[Agent] Enriched property ${fullProp.id} with project webpageUrl: ${proj.webpageUrl}`);
                   }
                 } catch (e) {
-                  console.warn(`[Agent] Failed to fetch project webpageUrl for project ${fullProp.project.id}:`, e?.message || e);
+                  console.warn(`[Agent] Failed to fetch project webpageUrl for project ${fullProp.project.id}:`, (e as Error)?.message || e);
                 }
               }
               return { ...fullProp, ai_pitch: d.ai_pitch };

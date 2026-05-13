@@ -185,7 +185,7 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
                   <div className="flex h-6 w-6 items-center justify-center rounded-full bg-success">
                     <Bot className="h-3.5 w-3.5 text-white" />
                   </div>
-                  <span className="text-xs font-medium text-muted-foreground/80">Rahul</span>
+                  <span className="text-xs font-medium text-muted-foreground/80">Shriya</span>
                 </div>
                 <div className="flex items-center gap-3 rounded-2xl rounded-tl-sm border border-border bg-white/90 p-4 shadow-sm">
                   <div className="flex gap-1">

@@ -131,7 +131,7 @@
     // Note: This points to your local development server. 
     // Make sure 'npm run dev' is running in the client directory.
     iframe.src = 'http://localhost:5173';
-    iframe.title = 'Rahul';
+    iframe.title = 'Shriya';
     iframe.allow = 'clipboard-read; clipboard-write; microphone; camera';
 
     windowDiv.appendChild(iframe);
@@ -176,6 +176,12 @@
         windowDiv.classList.add('visible');
         button.classList.add('active');
         button.innerHTML = closeIcon;
+        
+        // Pass the mode to the iframe if we are resuming Voice session
+        const storedMode = sessionStorage.getItem('aksharChatMode');
+        if (storedMode) {
+            iframe.contentWindow.postMessage({ type: 'chatbot:setMode', mode: storedMode }, '*');
+        }
     }
 
     if (shouldOpenChatbotFromUrl()) {

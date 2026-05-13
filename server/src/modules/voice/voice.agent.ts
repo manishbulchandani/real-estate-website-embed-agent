@@ -1,8 +1,14 @@
-import { defineAgent, inference, llm, voice } from "@livekit/agents";
+import { defineAgent, llm, voice } from "@livekit/agents";
 import * as silero from "@livekit/agents-plugin-silero";
+import * as google from "@livekit/agents-plugin-google";
+import * as elevenlabs from "@livekit/agents-plugin-elevenlabs";
+import * as deepgram from "@livekit/agents-plugin-deepgram";
 import axios from "axios";
+import mongoose from "mongoose";
+import { ChatSession } from "../agent/models/chatSession.model";
 import { z } from "zod";
 import { env } from "../../config/env.config";
+import connectDB from "../../config/db.config";
 
 type PropertyRecord = {
   id: string;
@@ -79,15 +85,29 @@ const buildVoiceSearchPayload = (args: {
 export class RealEstateVoiceAgent extends voice.Agent {
   constructor(tools: llm.ToolContext) {
     super({
-      instructions: `You are Rahul, a friendly and professional real estate voice advisor. 
+      instructions: `You are Shriya, a friendly and professional real estate voice advisor. 
+Your goal is to assist users with their property-related questions and help them find suitable homes through natural conversation.
 
-Your behavior:
-1. Be conversational, warm, and human-like. Ask one question at a time.
-2. Do NOT list properties verbally. When you find properties, call display_recommended_properties so the UI shows cards.
-3. Keep replies natural and concise - no long monologues.
-4. Use plain spoken language without markdown or formatting.
-5. When discussing a previously recommended property, use available context to answer questions clearly.
-6. If user says something like "show properties" or "what did you recommend", refer to what's on screen.`,
+KNOWLEDGE & PROACTIVITY:
+1. USE YOUR KNOWLEDGE: You have extensive knowledge about real estate, home-buying processes, financial terms (EMI, down payments), and various localities. Use this knowledge to provide helpful, detailed answers.
+2. BE PROACTIVE: If a user asks about a locality, don't just wait for filters—tell them what makes that locality special (amenities, connectivity, lifestyle) based on your knowledge.
+3. NEVER REFUSE: Do NOT say "I don't have a tool for that" or "I am only a real estate advisor." If a question is even remotely related to real estate, lifestyle, or moving, provide a helpful answer using your internal knowledge.
+4. If a user asks something completely unrelated, briefly answer and then politely steer the conversation back to how you can help them find a home.
+
+CONVERSATIONAL GUIDELINES:
+1. Be human-like, warm, and conversational. 
+2. HANDLING GREETINGS: Greet users warmly. For example: "Hello! How can I help you today?". 
+   - CRITICAL: Do NOT ask for preferences in your first response to a greeting. Wait for them to express interest.
+3. PREFERENCE GATHERING: Start gathering requirements (Locality, Budget, BHK, etc.) only after the user expresses interest in finding properties.
+4. ONE AT A TIME: Ask only ONE question at a time to keep it natural.
+5. If a request is broad, ask for 1-2 missing details instead of searching immediately.
+6. Be polite, warm, and concise.
+7. PLAIN TEXT ONLY: DO NOT use markdown formatting like bold (**text**) or lists. Use plain spoken text only.
+
+CRITICAL INSTRUCTIONS:
+1. SEARCH & DISPLAY: When you find properties, you MUST use the \`display_recommended_properties\` tool. Write a customized \`ai_pitch\` for each.
+2. DO NOT list property details in text. Use brief lead-ins like "I've found some great options for you. Take a look:" and let the tool handle the UI.
+3. FOLLOW-UPS: Use conversation history to answer questions about specific properties clearly.`,
       tools,
     });
   }
@@ -102,6 +122,9 @@ export const voiceAgentDefinition = defineAgent({
     proc.userData.vad = await silero.VAD.load();
   },
   entry: async (ctx) => {
+    if (mongoose.connection.readyState === 0) {
+      await connectDB();
+    }
     
     const recommendedById = new Map<string, PropertyRecord>();
     const encoder = new TextEncoder();
@@ -211,16 +234,24 @@ export const voiceAgentDefinition = defineAgent({
     });
 
     const vad = ctx.proc.userData.vad as silero.VAD;
-
-
+    let chatHistoryStr = "";
 
     const session = new voice.AgentSession({
       vad,
-      stt: new inference.STT({ model: "deepgram/nova-3", language: "multi" }),
-      llm: new inference.LLM({ model: "google/gemini-2.5-flash" }),
-      tts: new inference.TTS({
-        model: "elevenlabs/eleven_flash_v2_5",
-        ...(env.ELEVENLABS_VOICE_ID && { voice: env.ELEVENLABS_VOICE_ID }),
+      stt: new deepgram.STT({ 
+        model: "nova-3", 
+        language: "multi",
+        apiKey: env.DEEPGRAM_API_KEY || process.env.DEEPGRAM_API_KEY
+      }),
+      llm: new google.LLM({ 
+        model: "gemini-2.5-flash",
+        apiKey: env.GEMINI_API_KEY || process.env.GEMINI_API_KEY,
+        temperature: 0.4
+      }),
+      tts: new elevenlabs.TTS({
+        model: "eleven_flash_v2_5",
+        apiKey: env.ELEVENLABS_API_KEY || process.env.ELEVENLABS_API_KEY,
+        ...(env.ELEVENLABS_VOICE_ID && { voiceId: env.ELEVENLABS_VOICE_ID }),
       }),
       turnHandling: {
         turnDetection: "vad",
@@ -238,7 +269,6 @@ export const voiceAgentDefinition = defineAgent({
           enabled: false,
         },
       },
-      maxRetries: 2,
     });
 
     await session.start({
@@ -248,9 +278,52 @@ export const voiceAgentDefinition = defineAgent({
 
     await ctx.connect();
 
+    // Load recent chat history only after the room is connected, because the
+    // room context may be unavailable during worker startup.
+    try {
+      const metadataStr = ctx.room?.metadata || "{}";
+      console.debug('[Voice] ctx.room.name:', ctx.room?.name, 'ctx.room.metadataRaw:', metadataStr);
+
+      const metadata = JSON.parse(metadataStr);
+
+      // Prefer explicit metadata.sessionId, but fall back to parsing the LiveKit room name
+      // which we set to `voice-${sessionId}` in the token endpoint.
+      let resolvedSessionId: string | undefined = metadata.sessionId;
+      if (!resolvedSessionId && ctx.room?.name && typeof ctx.room.name === 'string') {
+        const match = String(ctx.room.name).match(/^voice-(.+)$/);
+        if (match) resolvedSessionId = match[1];
+      }
+
+      if (resolvedSessionId) {
+        const session = await ChatSession.findOne({ sessionId: resolvedSessionId }).lean().exec();
+        const historyMessages = (session?.messages ?? [])
+          .filter((message) => message.type === "text" && typeof message.content === "string" && message.content.trim().length > 0)
+          .slice(-10);
+
+        if (historyMessages.length > 0) {
+          chatHistoryStr = historyMessages
+            .map((message) => `${message.sender === "user" ? "User" : "Agent"}: ${message.content}`)
+            .join("\n");
+        }
+
+        console.debug("[Voice] Resolved sessionId for history:", resolvedSessionId, "loadedMessages:", historyMessages.length);
+      } else {
+        console.debug('[Voice] No sessionId found in room metadata or room name; skipping history load.');
+      }
+    } catch (e) {
+      console.error("[Voice] Failed to load chat history for context", e);
+    }
+
+    const isResumeSession = chatHistoryStr.trim().length > 0;
+
+    // When resuming from history we must be strict: do NOT introduce the agent
+    // or state the agent's name. Produce a single, short acknowledgement
+    // (<= 8 words) and then stop. This prevents the long greeting from being
+    // spoken again when continuing a paused session.
     await session.generateReply({
-      instructions:
-        "Greet the user naturally, introduce yourself as Rahul (their property advisor), and ask what kind of property they are looking for.",
+      instructions: isResumeSession
+        ? "Do NOT introduce yourself or state your name. Produce a single brief acknowledgement (no more than 8 words) such as 'I'm here — shall we continue?' and then stop. Do not ask additional questions or re-introduce previous context aloud."
+        : "Greet the user naturally, introduce yourself as Shriya (their property advisor), and ask how you can help them today.",
     });
   },
 });
