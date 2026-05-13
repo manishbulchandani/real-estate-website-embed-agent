@@ -9,6 +9,7 @@ import {
 import type { Property } from '../types';
 import { PropertyCarousel } from './PropertyCarousel';
 import { useCreateVoiceTokenMutation } from '../voiceApi';
+import { generateUUID } from '../../../utils/uuid';
 
 interface VoiceSessionConfig {
   roomName: string;
@@ -150,8 +151,8 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
         );
       }
 
-      const sessionId = localStorage.getItem('chatSessionId') || crypto.randomUUID();
-      const identity = `web-user-${crypto.randomUUID().slice(0, 8)}`;
+      const sessionId = localStorage.getItem('chatSessionId') || generateUUID();
+      const identity = `web-user-${generateUUID().slice(0, 8)}`;
 
       const config = await createVoiceToken({
         sessionId,

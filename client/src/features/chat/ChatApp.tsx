@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Loader2 } from 'lucide-react';
 import { useSendChatMessageMutation, useGetChatHistoryQuery } from './chatApi';
 import type { Message } from './types';
+import { generateUUID } from '../../utils/uuid';
 import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
 
@@ -11,7 +12,7 @@ interface ChatAppProps {
 export const ChatApp: React.FC<ChatAppProps> = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
-  const [sessionId, setSessionId] = useState(() => localStorage.getItem('chatSessionId') || crypto.randomUUID());
+  const [sessionId, setSessionId] = useState(() => localStorage.getItem('chatSessionId') || generateUUID());
   const [showTyping, setShowTyping] = useState(false);
   
   const [sendChatMessage, { isLoading }] = useSendChatMessageMutation();
@@ -61,7 +62,7 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
     isRequestInFlightRef.current = false;
     currentRequestRef.current = null;
     historyLoadedRef.current = false;
-    setSessionId(crypto.randomUUID());
+    setSessionId(generateUUID());
     setMessages([]);
   };
 
@@ -84,7 +85,7 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
 
       if (data.success && data.messages) {
         const agentMessages = data.messages.map((msg: any) => ({
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           sender: 'agent' as const,
           type: msg.type,
           content: msg.content,
@@ -99,7 +100,7 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
         console.error('[Chat] Error:', err);
         setMessages((prev) => [
           ...prev,
-          { id: crypto.randomUUID(), sender: 'agent' as const, type: 'text' as const, content: 'Something went wrong. Please try again.' },
+          { id: generateUUID(), sender: 'agent' as const, type: 'text' as const, content: 'Something went wrong. Please try again.' },
         ]);
       }
     }
@@ -119,7 +120,7 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
 
     setMessages((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), sender: 'user' as const, type: 'text' as const, content: userMsg },
+      { id: generateUUID(), sender: 'user' as const, type: 'text' as const, content: userMsg },
     ]);
 
     if (isRequestInFlightRef.current) {
