@@ -8,10 +8,10 @@ process.env.OPENAI_API_KEY =
 process.env.OPENAI_ADMIN_KEY =
   process.env.OPENAI_ADMIN_KEY || process.env.OPENAI_API_KEY;
 
-const workerEntry =
-  env.NODE_ENV === "production"
-    ? path.resolve(process.cwd(), "dist/modules/voice/voice.worker.js")
-    : path.resolve(process.cwd(), "src/modules/voice/voice.worker.ts");
+const isCompiled = __filename.endsWith('.js');
+const workerEntry = isCompiled
+    ? path.resolve(__dirname, "voice.worker.js")
+    : path.resolve(__dirname, "voice.worker.ts");
 
 console.log("[Voice Worker Bootstrap] Starting LiveKit agents worker...");
 console.log(`[Voice Worker Bootstrap] Agent file: ${workerEntry}`);
@@ -27,7 +27,7 @@ console.log(`[Voice Worker Bootstrap] LiveKit URL: ${env.LIVEKIT_URL}`);
       wsURL: env.LIVEKIT_URL,
       apiKey: env.LIVEKIT_API_KEY,
       apiSecret: env.LIVEKIT_API_SECRET,
-      logLevel: env.NODE_ENV === "production" ? "info" : "debug",
+      logLevel: env.NODE_ENV !== "development" ? "info" : "debug",
     }),
   );
 })();

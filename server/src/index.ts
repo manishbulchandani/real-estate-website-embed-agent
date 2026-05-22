@@ -71,11 +71,12 @@ const startVoiceWorker = () => {
     return;
   }
 
-  const runtimeFile = env.NODE_ENV === "production"
-    ? path.resolve(process.cwd(), "dist/modules/voice/voice.worker.runtime.js")
-    : path.resolve(process.cwd(), "src/modules/voice/voice.worker.runtime.ts");
+  const isCompiled = __filename.endsWith('.js');
+  const runtimeFile = isCompiled
+    ? path.resolve(__dirname, "modules/voice/voice.worker.runtime.js")
+    : path.resolve(__dirname, "modules/voice/voice.worker.runtime.ts");
 
-  const tsxBinary = path.resolve(process.cwd(), "node_modules/.bin/tsx");
+  const tsxBinary = path.resolve(__dirname, "..", "node_modules/.bin/tsx");
   const isRuntimeAvailable = fs.existsSync(runtimeFile);
 
   if (!isRuntimeAvailable) {
@@ -83,11 +84,8 @@ const startVoiceWorker = () => {
     return;
   }
 
-  const command = env.NODE_ENV === "production" ? "node" : tsxBinary;
-  const args =
-    env.NODE_ENV === "production"
-      ? [runtimeFile, "dev"]
-      : [runtimeFile, "dev"];
+  const command = isCompiled ? "node" : tsxBinary;
+  const args = [runtimeFile, "dev"];
 
   console.log(`[Voice Worker] Starting worker with ${command} ${args.join(" ")}`);
 

@@ -198,22 +198,47 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
       room.on(
         RoomEvent.TrackSubscribed,
         (track) => {
+          console.log('[Voice] TrackSubscribed event received for track SID:', track.sid, 'kind:', track.kind);
           if (track.kind !== 'audio') return;
 
           const audioElement = track.attach();
+          console.log('[Voice] Audio track attached to element. Autoplay set to true.');
 
           audioElement.autoplay = true;
           audioElement.setAttribute('playsinline', 'true');
           audioElement.controls = false;
 
-          remoteAudioContainerRef.current?.appendChild(audioElement);
+          if (remoteAudioContainerRef.current) {
+            // Remove any existing children to prevent overlapping duplicates
+            remoteAudioContainerRef.current.innerHTML = '';
+            remoteAudioContainerRef.current.appendChild(audioElement);
+            console.log('[Voice] Attached audio element to the DOM container.');
+          }
+
+          // Force playback and register handlers for autoplay policies
+          audioElement.play()
+            .then(() => {
+              console.log('[Voice] Audio playback successfully started.');
+            })
+            .catch((err) => {
+              console.warn('[Voice] Playback failed or autoplay blocked by browser:', err);
+              console.log('[Voice] Attempting fallback: room.startAudio() to unlock audio context.');
+              // Force LiveKit to resume the AudioContext via room.startAudio()
+              room.startAudio()
+                .then(() => console.log('[Voice] room.startAudio() completed successfully.'))
+                .catch((roomErr) => console.error('[Voice] room.startAudio() fallback failed:', roomErr));
+            });
         },
       );
 
       room.on(RoomEvent.TrackUnsubscribed, (track) => {
+        console.log('[Voice] TrackUnsubscribed event for track SID:', track.sid);
         if (track.kind !== 'audio') return;
 
-        track.detach().forEach((element) => element.remove());
+        track.detach().forEach((element) => {
+          console.log('[Voice] Detached and removing audio element from DOM');
+          element.remove();
+        });
       });
 
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
@@ -346,7 +371,17 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
     <div className="flex w-full h-full min-h-0 flex-col bg-transparent font-sans text-foreground">
       <div
         ref={remoteAudioContainerRef}
-        className="hidden"
+        style={{
+          position: 'absolute',
+          width: '1px',
+          height: '1px',
+          padding: '0',
+          margin: '-1px',
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          whiteSpace: 'nowrap',
+          border: '0',
+        }}
         aria-hidden="true"
       />
 
