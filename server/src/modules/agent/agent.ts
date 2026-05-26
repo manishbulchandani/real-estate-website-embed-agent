@@ -39,7 +39,7 @@ const toolNode = new ToolNode(tools);
 
 // Initialize Gemini model
 const model = new ChatGoogleGenerativeAI({
-  model: "gemini-3.1-flash-lite-preview",
+  model: "gemini-3.1-flash-lite",
   apiKey: env.GEMINI_API_KEY,
   temperature: 0.4,
 });
