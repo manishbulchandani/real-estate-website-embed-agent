@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { generateEmbedding } from "../../../utils/vector.util";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import { getCityCacheEntry, setCityCacheEntry } from "../../../services/cityCache.service";
 
 
 /**
@@ -463,6 +464,46 @@ export async function hybridPropertySearch(params: {
 }
 
 /**
+ * Quick city-level inventory check.
+ * Returns whether any listings exist for the given city and how many,
+ * using a 5-minute in-memory cache to avoid redundant DB hits.
+ *
+ * Used by the agent's inventory-first strategy: before asking the user
+ * for BHK / budget requirements, the agent probes via property_search
+ * with city-only filters (maxResults: 3). This helper is used internally
+ * by voice.controller and can be used in future middleware.
+ */
+export async function checkCityAvailability(
+  city: string,
+): Promise<{ hasListings: boolean; count: number }> {
+  const cached = getCityCacheEntry(city);
+  if (cached) {
+    console.log(`[CityCache] HIT for city "${city}":`, cached);
+    return { hasListings: cached.hasListings, count: cached.count };
+  }
+
+  const mongooseConnection = mongoose.connection;
+  if (!mongooseConnection.db) {
+    return { hasListings: false, count: 0 };
+  }
+
+  try {
+    const db = mongooseConnection.db;
+    const count = await db.collection("listings").countDocuments({
+      "location.city": { $regex: new RegExp(`^${city.trim()}$`, "i") },
+    });
+
+    const result = { hasListings: count > 0, count };
+    setCityCacheEntry(city, result);
+    console.log(`[CityCache] MISS for city "${city}", counted ${count} listings, cached.`);
+    return result;
+  } catch (err: any) {
+    console.warn(`[CityCache] Count query failed for city "${city}":`, err?.message);
+    return { hasListings: false, count: 0 };
+  }
+}
+
+/**
  * Build MongoDB filter object from agent-provided filters
  */
 function buildMongoDbFilters(filters: Record<string, any>): Record<string, any> {
@@ -576,6 +617,24 @@ export const propertySearchTool = tool(
         excludeIds: input.excludeIds,
       });
       console.log(`[Tool: property_search] Found ${results.length} properties.`);
+      
+      if (input.isInventoryProbe) {
+        console.log(`[Tool: property_search] isInventoryProbe=true, aggregating facets.`);
+        const uniqueBhks = Array.from(new Set(results.map(r => r.bhk).filter(b => typeof b === 'number' && b > 0))).sort((a, b) => a - b);
+        const uniqueLocalities = Array.from(new Set(results.map(r => r.locality).filter(Boolean)));
+        const uniquePropertyTypes = Array.from(new Set(results.map(r => r.propertyType).filter(Boolean)));
+
+        const probeResult = {
+          count: results.length,
+          hasListings: results.length > 0,
+          availableBhks: uniqueBhks,
+          localities: uniqueLocalities,
+          propertyTypes: uniquePropertyTypes,
+        };
+
+        return JSON.stringify(probeResult);
+      }
+      
       // We return JSON string so LangChain can serialize it easily, or just array
       return JSON.stringify(results);
     } catch (e: any) {
@@ -599,6 +658,60 @@ export const propertySearchTool = tool(
       }).optional().describe("Structured filters to refine the search"),
       maxResults: z.number().optional().describe("Maximum number of results to return (default 10)"),
       excludeIds: z.array(z.string()).optional().describe("List of Property IDs to exclude from search results"),
+      isInventoryProbe: z.boolean().optional().describe("CRITICAL: Set to true if this is a silent inventory probe (e.g. checking city availability before asking for BHK/budget). When true, returns ONLY a count, physically preventing property cards from displaying prematurely."),
     }),
   }
 );
+
+/**
+ * Tool: Get all cities that have at least one listing in the database.
+ * Used when the user asks "which cities do you have?" or similar.
+ * Runs a distinct query — never hallucinate city names from general knowledge.
+ */
+export const getAvailableCitiesTool = tool(
+  async () => {
+    try {
+      const mongooseConnection = mongoose.connection;
+      if (!mongooseConnection.db) {
+        return JSON.stringify({ cities: [], error: "Database not connected" });
+      }
+      const cities: string[] = await mongooseConnection.db
+        .collection("listings")
+        .distinct("location.city");
+
+      const sorted = cities
+        .filter(Boolean)
+        .map((c) => String(c).trim())
+        .filter((c) => c.length > 0)
+        .sort();
+
+      console.log(`[Tool: get_available_cities] Found ${sorted.length} cities:`, sorted);
+      return JSON.stringify({ cities: sorted });
+    } catch (e: any) {
+      console.error(`[Tool: get_available_cities] Error:`, e.message);
+      return JSON.stringify({ cities: [], error: e.message });
+    }
+  },
+  {
+    name: "get_available_cities",
+    description: `Returns the exact list of cities that have active property listings in the database.
+
+WHEN TO CALL THIS (mandatory, not optional):
+- Immediately after any property_search probe returns 0 results — before responding to the user.
+- Whenever the user asks "which cities do you have?", "where are you available?", "do you have anywhere else?"
+
+FORBIDDEN behavior (never do this instead of calling this tool):
+- Do NOT suggest Bangalore, Hyderabad, Delhi, Pune, Goa, or any other city from your training knowledge.
+- Do NOT run property_search probes for cities you thought of yourself.
+- Do NOT say "We are available in Mumbai, Bangalore..." without calling this tool first.
+
+CORRECT flow when a city has no results:
+  1. Call get_available_cities.
+  2. Read the { cities } list.
+  3. Tell the user which cities from that list are available.
+
+Returns: { cities: string[] }`,
+    schema: z.object({}),
+  }
+);
+
