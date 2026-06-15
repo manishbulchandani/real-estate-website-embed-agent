@@ -2,6 +2,7 @@ import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messag
 import { StateGraph, MemorySaver, StateGraphArgs } from "@langchain/langgraph";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { propertySearchTool, getAvailableCitiesTool } from "./tools/hybridPropertySearch.tool";
+import { sendMediaTool } from "./tools/sendMedia.tool";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { env } from "../../config/env.config";
 import { tool } from "@langchain/core/tools";
@@ -47,7 +48,7 @@ When called, write a personalized ai_pitch per property explaining why it fits t
   }
 );
 
-const tools = [propertySearchTool, getAvailableCitiesTool, displayPropertiesTool];
+const tools = [propertySearchTool, getAvailableCitiesTool, displayPropertiesTool, sendMediaTool];
 const toolNode = new ToolNode(tools);
 
 // Main agent model
@@ -143,6 +144,12 @@ KNOWLEDGE & PROACTIVITY:
 2. BE PROACTIVE: If a user asks about a locality, don't just wait for filters—tell them what makes that locality special (amenities, connectivity, lifestyle) based on your knowledge.
 3. NEVER REFUSE: Do NOT say "I don't have a tool for that" or "I am only a real estate assistant." If a question is even remotely related to real estate, lifestyle, or moving, provide a helpful answer using your internal knowledge.
 4. If a user asks something completely unrelated, briefly answer and then politely steer the conversation back to how you can help them find a home.
+5. DEMO MODE & DUMMY ANSWERS: For demo purposes, if the user asks for specific details or information about a property (e.g. amenities, possession date, exact distance to landmarks, specific layout features, or RERA status) and that information is not available in the database, DO NOT say "I don't know" or refuse to answer. Instead, act as a knowledgeable sales agent of that property and generate a realistic, professional-sounding dummy answer on the fly using your internal intelligence. Present it confidently and naturally.
+
+MEDIA & DOCUMENTS (IMAGES & PDFs):
+1. SENDING IMAGES: If the user asks for images, photos, or pictures of a specific property, find that property using search tools or history, get its image URL (from the \`images\` array of the property data), and call the \`send_media\` tool with type='image' and the image's URL. If the property has no images, or if asked generally for images, send a dummy/placeholder image URL.
+2. SENDING DOCUMENTS: If the user asks for a floor plan, brochure, price list, or any other document for a property, generate a custom PDF file name matching the request (e.g. 'Floor_Plan_Godrej_Woods.pdf', 'Brochure_Rustomjee_Crown.pdf') and call the \`send_media\` tool with type='pdf', url='/dummy.pdf', and the custom filename.
+
 
 INVENTORY-FIRST SEARCH STRATEGY (CRITICAL — follow this order every time):
 1. The moment a user mentions a city or region of interest, IMMEDIATELY call property_search with ONLY that city as a filter, maxResults: 3, AND set isInventoryProbe: true. This is a silent inventory probe — it runs in the background only and returns ONLY a count.

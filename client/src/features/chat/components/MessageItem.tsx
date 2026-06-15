@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, Bot } from 'lucide-react';
+import { User, Bot, FileText } from 'lucide-react';
 import type { Message } from '../types';
 import { PropertyCarousel } from './PropertyCarousel';
 
@@ -57,6 +57,36 @@ export const MessageItem: React.FC<MessageItemProps> = ({ msg, formatPrice }) =>
 
       {msg.type === 'properties' && msg.data && (
         <PropertyCarousel properties={msg.data} formatPrice={formatPrice} />
+      )}
+
+      {msg.type === 'image' && msg.content && (
+        <div className="rounded-[1.35rem] overflow-hidden border border-border/70 bg-white shadow-sm p-1 max-w-[280px] sm:max-w-xs mt-1">
+          <img
+            src={msg.content}
+            alt={msg.data?.propertyName || 'Property Image'}
+            className="w-full h-auto rounded-[1rem] object-cover max-h-52"
+          />
+        </div>
+      )}
+
+      {msg.type === 'pdf' && msg.content && (
+        <a
+          href={msg.content}
+          download={msg.data?.fileName || 'document.pdf'}
+          className="flex items-center gap-3 rounded-[1.35rem] border border-border/70 bg-white/90 px-4 py-3 shadow-sm hover:bg-muted/30 transition-colors cursor-pointer text-foreground max-w-[280px] sm:max-w-xs mt-1"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-100 text-red-600">
+            <FileText className="h-6 w-6" />
+          </div>
+          <div className="flex flex-col overflow-hidden text-left">
+            <span className="text-sm font-medium text-foreground truncate max-w-[160px] sm:max-w-[190px]">
+              {msg.data?.fileName || 'document.pdf'}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Click to download PDF
+            </span>
+          </div>
+        </a>
       )}
     </div>
   );

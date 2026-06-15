@@ -104,6 +104,20 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
         } catch (e) {
           console.error("Failed to parse tool message content", e);
         }
+      } else if (msg instanceof ToolMessage && msg.name === "send_media") {
+        try {
+          const mediaInfo = JSON.parse(msg.content as string);
+          outputMessages.push({
+            type: mediaInfo.type,
+            content: mediaInfo.url,
+            data: {
+              fileName: mediaInfo.fileName,
+              propertyName: mediaInfo.propertyName,
+            }
+          });
+        } catch (e) {
+          console.error("Failed to parse send_media tool content", e);
+        }
       } else if (msg instanceof AIMessage) {
         if (msg.content && typeof msg.content === "string" && msg.content.trim().length > 0) {
           outputMessages.push({
@@ -131,7 +145,7 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
       ...outputMessages.map((message) => ({
         id: crypto.randomUUID(),
         sender: "agent" as const,
-        type: message.type === "properties" ? ("properties" as const) : ("text" as const),
+        type: message.type as any,
         content: typeof message.content === "string" ? message.content : undefined,
         data: message.data,
       })),
@@ -248,6 +262,20 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
               });
             }
           }
+        } catch (e) {}
+      } else if (msg instanceof ToolMessage && msg.name === "send_media") {
+        try {
+          const mediaInfo = JSON.parse(msg.content as string);
+          outputMessages.push({
+            id: msg.id || i.toString(),
+            sender: "agent",
+            type: mediaInfo.type,
+            content: mediaInfo.url,
+            data: {
+              fileName: mediaInfo.fileName,
+              propertyName: mediaInfo.propertyName,
+            }
+          });
         } catch (e) {}
       }
     }
