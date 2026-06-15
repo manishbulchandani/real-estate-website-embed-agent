@@ -1,7 +1,7 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 export type ChatMessageSender = "user" | "agent";
-export type ChatMessageType = "text" | "properties" | "image" | "pdf";
+export type ChatMessageType = "text" | "properties" | "image" | "pdf" | "booking";
 
 export interface IChatMessage {
   id?: string;
@@ -22,7 +22,7 @@ const chatMessageSchema = new Schema<IChatMessage>(
   {
     id: { type: String, optional: true },
     sender: { type: String, required: true, enum: ["user", "agent"] },
-    type: { type: String, required: true, enum: ["text", "properties", "image", "pdf"] },
+    type: { type: String, required: true, enum: ["text", "properties", "image", "pdf", "booking"] },
     content: { type: String, optional: true },
     data: { type: Schema.Types.Mixed, optional: true },
   },

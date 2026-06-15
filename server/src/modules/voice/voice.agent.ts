@@ -116,6 +116,7 @@ KNOWLEDGE & PROACTIVITY:
 3. NEVER REFUSE: Do NOT say "I don't have a tool for that" or "I am only a real estate advisor." If a question is even remotely related to real estate, lifestyle, or moving, provide a helpful answer using your internal knowledge.
 4. If a user asks something completely unrelated, briefly answer and then politely steer the conversation back to how you can help them find a home.
 5. DEMO MODE & DUMMY ANSWERS: For demo purposes, if the user asks for specific details or information about a property (e.g. amenities, possession date, exact distance to landmarks, specific layout features, or RERA status) and that information is not available in the database, DO NOT say "I don't know" or refuse to answer. Instead, act as a knowledgeable sales agent of that property and generate a realistic, professional-sounding dummy answer on the fly using your internal intelligence. Present it confidently and naturally.
+6. VISIT BOOKING & PROACTIVE CLOSING: Your ultimate motive is to get the sale closed. You must be proactive but strategic. Do NOT suggest booking a site visit on the very first message or on every property search result. Propose booking a site visit or scheduling a developer call when the user shows strong interest in a specific property (e.g. asking detailed questions, comparing options, or expressing positive feedback). Before calling the 'book_visit' tool, you MUST gather: property name, preferred date, preferred time slot, user's name, and phone number. Ask for these naturally, one question at a time. Once all details are gathered, call 'book_visit' immediately to confirm the booking.
 
 INVENTORY-FIRST SEARCH STRATEGY (CRITICAL — follow this order every time):
 1. The moment a user mentions a city or region of interest, IMMEDIATELY call property_search with ONLY that city as a filter, maxResults: 3, AND set isInventoryProbe: true. This is a silent inventory probe — it runs in the background only and returns ONLY a count.
@@ -258,9 +259,52 @@ export const voiceAgentDefinition = defineAgent({
       },
     });
 
+    // Booking visit tool
+    const bookVisitTool = llm.tool({
+      description: "Book a site visit or schedule a developer call for a property. Only call this when you have collected the user's name, phone number, preferred date, and time slot.",
+      parameters: z.object({
+        propertyId: z.string().describe("The ID of the property to book a visit for"),
+        propertyName: z.string().describe("The name of the property"),
+        date: z.string().describe("The preferred date of the visit"),
+        timeSlot: z.string().describe("The preferred time slot/time of day"),
+        userName: z.string().describe("The user's name"),
+        userPhone: z.string().describe("The user's phone number")
+      }),
+      execute: async (args) => {
+        const bookingId = "BK-" + Math.floor(1000 + Math.random() * 9000);
+        const booking = {
+          ...args,
+          bookingId,
+          status: "Confirmed" as const
+        };
+        
+        if (ctx.room) {
+          try {
+            await ctx.room.localParticipant?.publishData(
+              encoder.encode(
+                JSON.stringify({
+                  type: "voice_booking",
+                  booking: booking
+                })
+              ),
+              {
+                reliable: true,
+                topic: "property_recommendations"
+              }
+            );
+          } catch (e) {
+            console.error("Failed to publish booking data:", e);
+          }
+        }
+        
+        return booking;
+      }
+    });
+
     const agent = new RealEstateVoiceAgent({
       property_search: propertySearchTool,
       display_recommended_properties: displayPropertiesToolTool,
+      book_visit: bookVisitTool,
     });
 
     const vad = ctx.proc.userData.vad as silero.VAD;

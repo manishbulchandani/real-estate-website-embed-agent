@@ -4,6 +4,7 @@ import {
   Phone,
   PhoneOff,
   AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 
 import type { Property } from '../types';
@@ -25,6 +26,16 @@ interface VoiceConnectionState {
   isListening: boolean;
   error: string | null;
   transcript: string;
+}
+
+interface BookingInfo {
+  propertyName: string;
+  date: string;
+  timeSlot: string;
+  bookingId: string;
+  userName?: string;
+  userPhone?: string;
+  status: 'Confirmed' | 'Pending';
 }
 
 interface VoiceModeProps {
@@ -113,11 +124,17 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
     return saved ? new Set(JSON.parse(saved)) : new Set();
   });
 
+  const [voiceBookings, setVoiceBookings] = useState<BookingInfo[]>(() => {
+    const saved = sessionStorage.getItem('voiceBookings');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   // Save to session storage whenever they change
   useEffect(() => {
     sessionStorage.setItem('voiceProperties', JSON.stringify(voiceProperties));
     sessionStorage.setItem('seenPropertyIds', JSON.stringify(Array.from(seenPropertyIds)));
-  }, [voiceProperties, seenPropertyIds]);
+    sessionStorage.setItem('voiceBookings', JSON.stringify(voiceBookings));
+  }, [voiceProperties, seenPropertyIds, voiceBookings]);
 
   const roomRef = useRef<Room | null>(null);
   const sessionConfigRef = useRef<VoiceSessionConfig | null>(null);
@@ -286,6 +303,11 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
                     return updated;
                   });
                 }
+              } else if (data.type === 'voice_booking' && data.booking) {
+                setVoiceBookings((prev) => {
+                  if (prev.some(b => b.bookingId === data.booking.bookingId)) return prev;
+                  return [...prev, data.booking];
+                });
               }
             } catch (error) {
               console.error(
@@ -341,8 +363,10 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
       disconnectVoice();
       setVoiceProperties([]);
       setSeenPropertyIds(new Set());
+      setVoiceBookings([]);
       sessionStorage.removeItem('voiceProperties');
       sessionStorage.removeItem('seenPropertyIds');
+      sessionStorage.removeItem('voiceBookings');
       setState({
         isConnected: false,
         isConnecting: false,
@@ -462,6 +486,54 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
                 properties={voiceProperties}
                 formatPrice={formatPrice}
               />
+            </div>
+          )}
+
+          {/* Scheduled Visits */}
+          {voiceBookings.length > 0 && (
+            <div className="mt-4 shrink-0 space-y-3 text-left">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-slate-800">
+                  Scheduled Visits
+                </p>
+                <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-semibold text-white">
+                  {voiceBookings.length}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {voiceBookings.map((booking) => (
+                  <div key={booking.bookingId} className="flex flex-col rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 p-4 shadow-sm backdrop-blur-xl">
+                    <div className="flex items-center justify-between gap-3 pb-2.5 border-b border-emerald-100/60">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                        <span className="text-sm font-semibold text-slate-900 truncate max-w-[150px]">{booking.propertyName}</span>
+                      </div>
+                      <span className="rounded-full bg-emerald-200/60 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-900">
+                        {booking.status}
+                      </span>
+                    </div>
+                    <div className="mt-2.5 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                      <div>
+                        <span className="font-semibold text-slate-400 block mb-0.5 tracking-wider uppercase text-[9px]">DATE</span>
+                        <span className="text-slate-800 font-semibold">{booking.date}</span>
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-400 block mb-0.5 tracking-wider uppercase text-[9px]">TIME SLOT</span>
+                        <span className="text-slate-800 font-semibold">{booking.timeSlot}</span>
+                      </div>
+                      <div className="col-span-2 border-t border-emerald-100/50 pt-2.5 mt-1 flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-slate-400 tracking-wider uppercase text-[9px]">VISITOR</span>
+                          <span className="text-slate-800 font-bold">{booking.userName}</span>
+                        </div>
+                        <span className="font-mono text-[10px] text-emerald-700 font-bold bg-emerald-100/70 px-2 py-0.5 rounded shadow-sm">
+                          ID: {booking.bookingId}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           </div>
@@ -592,6 +664,54 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
                 properties={voiceProperties}
                 formatPrice={formatPrice}
               />
+            </div>
+          )}
+
+          {/* Scheduled Visits History */}
+          {voiceBookings.length > 0 && (
+            <div className="mt-4 px-4 mx-auto w-full max-w-md shrink-0 space-y-3 text-left">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-slate-800">
+                  Scheduled Visits
+                </p>
+                <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-semibold text-white">
+                  {voiceBookings.length}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {voiceBookings.map((booking) => (
+                  <div key={booking.bookingId} className="flex flex-col rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 p-4 shadow-sm backdrop-blur-xl">
+                    <div className="flex items-center justify-between gap-3 pb-2.5 border-b border-emerald-100/60">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                        <span className="text-sm font-semibold text-slate-900 truncate max-w-[150px]">{booking.propertyName}</span>
+                      </div>
+                      <span className="rounded-full bg-emerald-200/60 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-900">
+                        {booking.status}
+                      </span>
+                    </div>
+                    <div className="mt-2.5 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                      <div>
+                        <span className="font-semibold text-slate-400 block mb-0.5 tracking-wider uppercase text-[9px]">DATE</span>
+                        <span className="text-slate-800 font-semibold">{booking.date}</span>
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-400 block mb-0.5 tracking-wider uppercase text-[9px]">TIME SLOT</span>
+                        <span className="text-slate-800 font-semibold">{booking.timeSlot}</span>
+                      </div>
+                      <div className="col-span-2 border-t border-emerald-100/50 pt-2.5 mt-1 flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-slate-400 tracking-wider uppercase text-[9px]">VISITOR</span>
+                          <span className="text-slate-800 font-bold">{booking.userName}</span>
+                        </div>
+                        <span className="font-mono text-[10px] text-emerald-700 font-bold bg-emerald-100/70 px-2 py-0.5 rounded shadow-sm">
+                          ID: {booking.bookingId}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

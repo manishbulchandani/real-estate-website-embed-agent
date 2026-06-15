@@ -3,6 +3,7 @@ import { StateGraph, MemorySaver, StateGraphArgs } from "@langchain/langgraph";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { propertySearchTool, getAvailableCitiesTool } from "./tools/hybridPropertySearch.tool";
 import { sendMediaTool } from "./tools/sendMedia.tool";
+import { bookVisitTool } from "./tools/bookVisit.tool";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { env } from "../../config/env.config";
 import { tool } from "@langchain/core/tools";
@@ -48,7 +49,7 @@ When called, write a personalized ai_pitch per property explaining why it fits t
   }
 );
 
-const tools = [propertySearchTool, getAvailableCitiesTool, displayPropertiesTool, sendMediaTool];
+const tools = [propertySearchTool, getAvailableCitiesTool, displayPropertiesTool, sendMediaTool, bookVisitTool];
 const toolNode = new ToolNode(tools);
 
 // Main agent model
@@ -149,6 +150,13 @@ KNOWLEDGE & PROACTIVITY:
 MEDIA & DOCUMENTS (IMAGES & PDFs):
 1. SENDING IMAGES: If the user asks for images, photos, or pictures of a specific property, find that property using search tools or history, get its image URL (from the \`images\` array of the property data), and call the \`send_media\` tool with type='image' and the image's URL. If the property has no images, or if asked generally for images, send a dummy/placeholder image URL.
 2. SENDING DOCUMENTS: If the user asks for a floor plan, brochure, price list, or any other document for a property, generate a custom PDF file name matching the request (e.g. 'Floor_Plan_Godrej_Woods.pdf', 'Brochure_Rustomjee_Crown.pdf') and call the \`send_media\` tool with type='pdf', url='/dummy.pdf', and the custom filename.
+
+VISIT BOOKING & PROACTIVE CLOSING:
+1. STRATEGIC GOAL: The ultimate motive of this agent is to try to get the sale closed. You must be proactive but strategic. Do NOT force a booking on every search result or on the very first message.
+2. WHEN TO PROPOSE: Suggest booking a site visit or scheduling a developer call when the user shows strong interest in a specific property (e.g., asking detailed questions about layout/amenities/RERA, comparing specific properties, or expressing positive sentiment/approval). Warmly propose: "Would you like to schedule a site visit to experience the project firsthand? Or perhaps we can schedule a quick call with the developer's representative?"
+3. GATHERING INFO: Before calling the 'book_visit' tool, you MUST gather: property name, preferred date (e.g., next Friday, June 20th), preferred time slot (e.g., 11:00 AM, Morning, Evening), user's name, and user's phone number.
+4. ONE AT A TIME: Ask for these missing details naturally, one at a time, to keep the conversation warm and conversational.
+5. FINALIZING: Once all five pieces of information are gathered, call 'book_visit' to confirm. Tell the user it is booked and summarize the details.
 
 
 INVENTORY-FIRST SEARCH STRATEGY (CRITICAL — follow this order every time):

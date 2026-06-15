@@ -118,6 +118,16 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
         } catch (e) {
           console.error("Failed to parse send_media tool content", e);
         }
+      } else if (msg instanceof ToolMessage && msg.name === "book_visit") {
+        try {
+          const bookingInfo = JSON.parse(msg.content as string);
+          outputMessages.push({
+            type: "booking",
+            data: bookingInfo
+          });
+        } catch (e) {
+          console.error("Failed to parse book_visit tool content", e);
+        }
       } else if (msg instanceof AIMessage) {
         if (msg.content && typeof msg.content === "string" && msg.content.trim().length > 0) {
           outputMessages.push({
@@ -275,6 +285,16 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
               fileName: mediaInfo.fileName,
               propertyName: mediaInfo.propertyName,
             }
+          });
+        } catch (e) {}
+      } else if (msg instanceof ToolMessage && msg.name === "book_visit") {
+        try {
+          const bookingInfo = JSON.parse(msg.content as string);
+          outputMessages.push({
+            id: msg.id || i.toString(),
+            sender: "agent",
+            type: "booking",
+            data: bookingInfo
           });
         } catch (e) {}
       }

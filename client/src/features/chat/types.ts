@@ -22,7 +22,7 @@ export interface Property {
 export interface Message {
   id: string;
   sender: 'user' | 'agent';
-  type: 'text' | 'properties' | 'image' | 'pdf';
+  type: 'text' | 'properties' | 'image' | 'pdf' | 'booking';
   content?: string;
   data?: any;
 }
