@@ -134,6 +134,11 @@ CONVERSATIONAL GUIDELINES:
 4. ONE AT A TIME: Ask only ONE question at a time to keep it natural.
 5. Be polite, warm, and concise.
 6. PLAIN TEXT ONLY: DO NOT use markdown formatting like bold (**text**) or lists. Use plain spoken text only.
+7. MODERN LANGUAGE & SCRIPT (CRITICAL):
+   - For your main spoken response: You MUST mix English words (written in the English alphabet) and Hindi words (written in Devanagari script) naturally, just like modern urban Indians speak. 
+   - DO NOT use pure "shuddha" Hindi words like "विकल्प" or "उपलब्ध". Instead, use the English words "options" and "available" written in English.
+   - Example of a GOOD response: "Navi Mumbai में हमारे पास कुछ options available हैं। आप कितने BHK की property देख रहे हैं?"
+   - For the UI cards (ai_pitch): This must always use 100% Roman/English alphabet (Hinglish), as defined in the tool schema.
 
 CRITICAL INSTRUCTIONS:
 1. SEARCH & DISPLAY: Use display_recommended_properties ONLY after a non-probe search (one that returns full property details). Never after an inventory probe. Write a personalized ai_pitch per property.
@@ -156,7 +161,7 @@ export const voiceAgentDefinition = defineAgent({
     if (mongoose.connection.readyState === 0) {
       await connectDB();
     }
-    
+
     const recommendedById = new Map<string, PropertyRecord>();
     const encoder = new TextEncoder();
 
@@ -184,7 +189,7 @@ export const voiceAgentDefinition = defineAgent({
         try {
           const searchPayload = buildVoiceSearchPayload(args);
           const apiUrl = `http://localhost:${env.PORT}/api/v1/voice/recommendations`;
-          
+
           const response = await axios.post(apiUrl, searchPayload, { timeout: 15000 });
           const properties = (response.data?.properties ?? []) as PropertyRecord[];
 
@@ -204,7 +209,7 @@ export const voiceAgentDefinition = defineAgent({
               images: p.images?.slice(0, 2),
             })),
           };
-          
+
           return result;
         } catch (error) {
           console.error("Property search failed:", error);
@@ -223,7 +228,7 @@ export const voiceAgentDefinition = defineAgent({
             id: z.string(),
             ai_pitch: z
               .string()
-              .describe("Why this property matches the user's needs"),
+              .describe("Why this property matches the user's needs. MUST be written in the conversation's language (e.g. Hindi) but ALWAYS using the Roman/English alphabet (Hinglish). E.g., 'Mene ye property aapke budget ke hisab se recommend ki hai.'"),
           }),
         ),
       }),
@@ -277,7 +282,7 @@ export const voiceAgentDefinition = defineAgent({
           bookingId,
           status: "Confirmed" as const
         };
-        
+
         if (ctx.room) {
           try {
             await ctx.room.localParticipant?.publishData(
@@ -296,7 +301,7 @@ export const voiceAgentDefinition = defineAgent({
             console.error("Failed to publish booking data:", e);
           }
         }
-        
+
         return booking;
       }
     });
@@ -312,12 +317,14 @@ export const voiceAgentDefinition = defineAgent({
 
     const session = new voice.AgentSession({
       vad,
-      stt: new deepgram.STT({ 
-        model: "nova-3", 
-        language: "multi",
+      stt: new deepgram.STT({
+        model: "nova-2-conversationalai",
+        language: "hi",
+        interimResults: true,
+        smartFormat: true,
         apiKey: env.DEEPGRAM_API_KEY || process.env.DEEPGRAM_API_KEY
       }),
-      llm: new google.LLM({ 
+      llm: new google.LLM({
         model: "gemini-2.5-flash",
         apiKey: env.GEMINI_API_KEY || process.env.GEMINI_API_KEY,
         temperature: 0.4
@@ -331,8 +338,8 @@ export const voiceAgentDefinition = defineAgent({
         turnDetection: "vad",
         interruption: {
           mode: "vad",
-          minDuration: 500,
-          minWords: 1,
+          minDuration: 300,
+          minWords: 0,
         },
         endpointing: {
           mode: "fixed",
@@ -340,7 +347,7 @@ export const voiceAgentDefinition = defineAgent({
           maxDelay: 2500,
         },
         preemptiveGeneration: {
-          enabled: true,
+          enabled: false,
         },
       },
     });
