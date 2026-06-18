@@ -93,6 +93,7 @@ const startVoiceWorker = () => {
     stdio: "inherit",
     env: {
       ...process.env,
+      NODE_OPTIONS: "--max-old-space-size=512",
       LIVEKIT_AGENT_NAME: env.LIVEKIT_AGENT_NAME,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || "sk-placeholder-livekit-gateway",
     },
