@@ -331,16 +331,16 @@ export const voiceAgentDefinition = defineAgent({
         turnDetection: "vad",
         interruption: {
           mode: "vad",
-          minDuration: 1200,
+          minDuration: 500,
           minWords: 1,
         },
         endpointing: {
           mode: "fixed",
-          minDelay: 700,
+          minDelay: 500,
           maxDelay: 2500,
         },
         preemptiveGeneration: {
-          enabled: false,
+          enabled: true,
         },
       },
     });
