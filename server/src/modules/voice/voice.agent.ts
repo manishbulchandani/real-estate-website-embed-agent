@@ -164,6 +164,13 @@ export const voiceAgentDefinition = defineAgent({
       }),
       execute: async (args) => {
         try {
+          // Add a delay to allow the agent's generated filler phrase (e.g. "Let me check...")
+          // to fully finish playing via TTS before the search results come back.
+          // This prevents the response from cutting off the filler phrase.
+          if (!args.isInventoryProbe) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+          }
+
           const searchPayload = buildVoiceSearchPayload(args);
           const apiUrl = `http://localhost:${env.PORT}/api/v1/voice/recommendations`;
 
@@ -443,6 +450,7 @@ INVENTORY-FIRST SEARCH STRATEGY (CRITICAL — follow this order every time):
 4. Only call display_recommended_properties AFTER you have gathered at least the user's BHK preference OR budget. Then run a refined search with those filters and show the results.
 5. REUSE CONTEXT BEFORE RE-SEARCHING: If the user relaxes a constraint (e.g., "forget the budget, show me any 2 BHK" or "ignore BHK, show me anything"), first check whether your earlier search results from this conversation already contain matching properties. If yes, display those without a new search. Only run a new property_search if the earlier results genuinely do not cover the relaxed request.
 6. Never say "we don't have listings" for a city that your earlier probe already confirmed has inventory. That confirmation stays valid for the whole conversation.
+7. FILLER PHRASES FOR SEARCHES: Whenever you are about to call the \`property_search\` tool (except for silent inventory probes), you MUST first generate a short, natural filler phrase in your conversational language to let the user know you are looking (e.g., "Give me a moment while I check the options for you...", "Let me see what we have in that area...", "Just a second, finding properties in [Location]..."). Generate this phrase situationally based on the context. DO NOT say this for isInventoryProbe.
 
 CONVERSATIONAL GUIDELINES:
 1. Be human-like, warm, and conversational.
