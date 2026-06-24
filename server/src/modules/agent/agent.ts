@@ -1,9 +1,11 @@
 import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { StateGraph, MemorySaver, StateGraphArgs } from "@langchain/langgraph";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatOpenAI } from "@langchain/openai";
 import { propertySearchTool, getAvailableCitiesTool } from "./tools/hybridPropertySearch.tool";
 import { sendMediaTool } from "./tools/sendMedia.tool";
 import { bookVisitTool } from "./tools/bookVisit.tool";
+import { submitReferralTool } from "./tools/submitReferral.tool";
+import { managePreferenceTool } from "./tools/managePreference.tool";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { env } from "../../config/env.config";
 import { tool } from "@langchain/core/tools";
@@ -13,6 +15,7 @@ export interface AgentState {
   messages: BaseMessage[];
   /** Language detected from the last HumanMessage — injected as a hard mandate into the system prompt. */
   detectedLanguage: string;
+  sessionId: string;
 }
 
 const stateDef: StateGraphArgs<AgentState>["channels"] = {
@@ -24,6 +27,10 @@ const stateDef: StateGraphArgs<AgentState>["channels"] = {
     // Always overwrite with the latest detection result
     value: (_prev: string, next: string) => next,
     default: () => "English",
+  },
+  sessionId: {
+    value: (_prev: string, next: string) => next,
+    default: () => "",
   },
 };
 
@@ -43,19 +50,22 @@ When called, write a personalized ai_pitch per property explaining why it fits t
     schema: z.object({
       properties: z.array(z.object({
         id: z.string().describe("The ID of the property to show"),
-        ai_pitch: z.string().describe("A compelling 1-2 sentence explanation written by you on why this specific property perfectly fits the user's requirements. MUST be written in the conversation's language (e.g. Hindi) but ALWAYS using the Roman/English alphabet (Hinglish). E.g., 'Mene ye property aapke budget ke hisab se recommend ki hai.'")
+        ai_pitch: z.string().describe("A compelling 1-2 sentence pitch. MUST BE WRITTEN IN HINGLISH (Hindi words written using the English alphabet). CRITICAL: DO NOT use Devanagari characters, and DO NOT translate to pure English. Example: 'Yeh 1.5 BHK apartment Airoli mein hai aur aapke liye perfect hai.'")
       }))
     })
   }
 );
 
-const tools = [propertySearchTool, getAvailableCitiesTool, displayPropertiesTool, sendMediaTool, bookVisitTool];
+const tools = [propertySearchTool, getAvailableCitiesTool, displayPropertiesTool, sendMediaTool, bookVisitTool, submitReferralTool, managePreferenceTool];
 const toolNode = new ToolNode(tools);
 
 // Main agent model
-const model = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
-  apiKey: env.GEMINI_API_KEY,
+const model = new ChatOpenAI({
+  model: env.OPENROUTER_CHAT_MODEL,
+  apiKey: env.OPENROUTER_API_KEY,
+  configuration: {
+    baseURL: "https://openrouter.ai/api/v1",
+  },
   temperature: 0.4,
 });
 const boundModel = model.bindTools(tools);
@@ -64,9 +74,12 @@ const boundModel = model.bindTools(tools);
 // Language detection model — focused, fast, zero temperature
 // Uses structured output so it can only reply with a language name
 // ─────────────────────────────────────────────
-const langDetectModel = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
-  apiKey: env.GEMINI_API_KEY,
+const langDetectModel = new ChatOpenAI({
+  model: env.OPENROUTER_CHAT_MODEL,
+  apiKey: env.OPENROUTER_API_KEY,
+  configuration: {
+    baseURL: "https://openrouter.ai/api/v1",
+  },
   temperature: 0,
 }).withStructuredOutput(
   z.object({
@@ -109,13 +122,9 @@ async function detectLanguageNode(state: AgentState): Promise<Partial<AgentState
     let responseStyle: string;
     if (result.language === "English" || result.script === "Latin") {
       responseStyle = "English";
-    } else if (result.script === "Roman") {
-      // User wrote Hindi/Marathi in Roman letters — respond the same way (Hinglish/Romanized)
-      responseStyle = `${result.language} written in Roman script (Hinglish style — use English letters to write ${result.language} words, NOT Devanagari or any Indian script characters)`;
-    } else if (result.script === "Devanagari") {
-      responseStyle = `${result.language} written in Devanagari script`;
     } else {
-      responseStyle = result.language;
+      // User wrote Hindi/Marathi/etc. - always respond in Roman script/Hinglish style (English letters only)
+      responseStyle = `${result.language} written in Roman script (Hinglish style — use English letters to write ${result.language} words, NOT Devanagari or any Indian script characters)`;
     }
 
     console.log(`[LangDetect] "${lastHuman.content.slice(0, 60)}" → lang: "${result.language}", script: "${result.script}" → responseStyle: "${responseStyle}"`);
@@ -130,7 +139,7 @@ async function detectLanguageNode(state: AgentState): Promise<Partial<AgentState
 // Main agent node
 // ─────────────────────────────────────────────
 async function callModel(state: AgentState) {
-  const { messages, detectedLanguage } = state;
+  const { messages, detectedLanguage, sessionId } = state;
 
   // Hard language mandate — first line of the prompt, before everything else
   const langMandate = `LANGUAGE MANDATE (NON-NEGOTIABLE): You MUST respond entirely in ${detectedLanguage}. ` +
@@ -153,10 +162,27 @@ MEDIA & DOCUMENTS (IMAGES & PDFs):
 
 VISIT BOOKING & PROACTIVE CLOSING:
 1. STRATEGIC GOAL: The ultimate motive of this agent is to try to get the sale closed. You must be proactive but strategic. Do NOT force a booking on every search result or on the very first message.
-2. WHEN TO PROPOSE: Suggest booking a site visit or scheduling a developer call when the user shows strong interest in a specific property (e.g., asking detailed questions about layout/amenities/RERA, comparing specific properties, or expressing positive sentiment/approval). Warmly propose: "Would you like to schedule a site visit to experience the project firsthand? Or perhaps we can schedule a quick call with the developer's representative?"
+2. WHEN TO PROPOSE: Suggest booking a site visit when the user shows strong interest in a specific property (e.g., asking detailed questions about layout/amenities/RERA, comparing specific properties, or expressing positive sentiment/approval). Warmly propose: "Would you like to schedule a site visit to experience the project firsthand?"
 3. GATHERING INFO: Before calling the 'book_visit' tool, you MUST gather: property name, preferred date (e.g., next Friday, June 20th), preferred time slot (e.g., 11:00 AM, Morning, Evening), user's name, and user's phone number.
 4. ONE AT A TIME: Ask for these missing details naturally, one at a time, to keep the conversation warm and conversational.
-5. FINALIZING: Once all five pieces of information are gathered, call 'book_visit' to confirm. Tell the user it is booked and summarize the details.
+5. FINALIZING: Once all five pieces of information are gathered, call 'book_visit' to submit the request. Always pass the current session ID as the 'sessionId' parameter (it is: ${sessionId}).
+6. AFTER BOOKING: Once 'book_visit' returns a successful response, tell the user: "Your visit request has been submitted! Our team will reach out to you on WhatsApp at [their phone number] to confirm the exact schedule. You'll hear from us soon!" Do NOT say it is "confirmed" — it is submitted and the team will coordinate. Do NOT show any booking ID numbers.
+
+REFERRAL FLOW:
+1. WHEN TO TRIGGER: If the user says "I want to refer someone", "my friend is looking", "can I refer someone", or similar expressions of wanting to refer a contact, engage the referral flow.
+2. GATHERING INFO: Before calling 'submit_referral', collect (one at a time, naturally):
+   a. The user's own name (referrer)
+   b. The user's own phone number (referrer)
+   c. The referred person's name (referee)
+   d. The referred person's phone number (referee)
+   e. Optionally: the city/area they're looking in and what kind of property
+3. SUBMIT: Once you have items a–d, call 'submit_referral'. Always pass sessionId (it is: ${sessionId}).
+4. AFTER SUBMIT: Tell the user: "Thank you for the referral! We've noted [referee name]'s details and our team will reach out to them on WhatsApp shortly. You'll also receive a WhatsApp confirmation."
+
+SHORTLISTING & PREFERENCES (CRITICAL):
+1. USE TOOLS FOR PREFERENCES: You have access to 'manage_property_preference' tool. Use it to shortlist properties or mark them as not interested based on user feedback.
+2. PROACTIVE SHORTLISTING: If a user expresses strong interest in a property, ask: "Would you like me to add this to your shortlist?"
+3. PROVIDE SESSION ID: Always pass the current session ID to the tool when managing preferences. The current session ID is: ${sessionId}
 
 
 INVENTORY-FIRST SEARCH STRATEGY (CRITICAL — follow this order every time):
@@ -175,12 +201,15 @@ CONVERSATIONAL GUIDELINES:
 3. PREFERENCE GATHERING: Gather requirements only after confirming inventory exists for the requested location (see INVENTORY-FIRST above).
 4. ONE AT A TIME: Ask only ONE question at a time to keep it natural.
 5. Be polite, warm, and concise.
-6. PLAIN TEXT ONLY: DO NOT use markdown formatting like bold (**text**) or lists. Use plain text only, optimized for being read or spoken.
+6. PLAIN TEXT ONLY (CRITICAL):
+   - DO NOT use markdown formatting like bold (**text**) or lists. Use plain text only, optimized for being read or spoken.
+   - DO NOT output any internal monologue, reasoning, planning, notes, or chain-of-thought (e.g., do NOT write "The user mentioned...", "I need to..."). Start your response directly with the words you want to say to the user.
 7. MODERN LANGUAGE & SCRIPT (CRITICAL):
-   - For your main spoken response: You MUST mix English words (written in the English alphabet) and Hindi words (written in Devanagari script) naturally, just like modern urban Indians speak. 
+   - Every single word, response, greeting, or message you output to the user MUST be written in the Roman/English alphabet only.
+   - For Hindi/other Indian language responses, you MUST write them in transliterated Roman script (Hinglish/Romanized style, e.g. write "Namaste, main Shriya hoon, aapki real estate assistant" or "Navi Mumbai mein hamare paas kuch options available hain").
+   - NEVER use Devanagari characters (like "नमस्ते", "मैं", "हूँ") or any other non-English script anywhere in your output text.
    - DO NOT use pure "shuddha" Hindi words like "विकल्प" or "उपलब्ध". Instead, use the English words "options" and "available" written in English.
-   - Example of a GOOD response: "Navi Mumbai में हमारे पास कुछ options available हैं। आप कितने BHK की property देख रहे हैं?"
-   - For the UI cards (ai_pitch): This must always use 100% Roman/English alphabet (Hinglish), as defined in the tool schema.
+   - CRITICAL PENALTY FOR UI CARDS: The 'ai_pitch' inside 'display_recommended_properties' MUST ONLY use English letters A-Z (Roman script). If you output Hindi/Devanagari characters (e.g., 'यह') in 'ai_pitch', the system will crash. Write it as 'Yeh property Chembur mein hai'.
 
 CRITICAL INSTRUCTIONS:
 1. SEARCH & DISPLAY: Use display_recommended_properties ONLY after a non-probe search (one that returns full property details). Never after an inventory probe. Write a personalized ai_pitch per property.

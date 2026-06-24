@@ -2,9 +2,9 @@ import axios from "axios";
 import { env } from "../config/env.config";
 
 const EMBEDDING_MODELS = [
-  "gemini-embedding-001",
-  "embedding-001",
-  "text-embedding-004",
+  "google/gemini-embedding-2",
+  "google/text-embedding-004",
+  "google/gemini-embedding-001",
 ] as const;
 
 export interface ListingVectorPayload {
@@ -29,26 +29,28 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   for (const modelName of EMBEDDING_MODELS) {
     try {
       const response = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:embedContent`,
+        "https://openrouter.ai/api/v1/embeddings",
         {
-          model: `models/${modelName}`,
-          content: {
-            parts: [{ text: input }],
-          },
+          model: modelName,
+          input: input,
         },
         {
-          params: { key: env.GEMINI_API_KEY },
+          headers: {
+            Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 15000,
         }
       );
 
-      const values = response?.data?.embedding?.values;
+      const values = response?.data?.data?.[0]?.embedding;
       if (Array.isArray(values) && values.length > 0) {
         return values;
       }
     } catch (error: any) {
       const status = error?.response?.status;
       const apiMessage = error?.response?.data?.error?.message;
-      console.error("[VectorUtil] Embedding model attempt failed", {
+      console.error("[VectorUtil] OpenRouter Embedding model attempt failed", {
         modelName,
         status,
         error: apiMessage || error?.message,
@@ -56,5 +58,5 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     }
   }
 
-  throw new Error("Failed to generate embedding with available Gemini embedding models");
+  throw new Error("Failed to generate embedding with available OpenRouter embedding models");
 }

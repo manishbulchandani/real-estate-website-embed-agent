@@ -2,8 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { MessageSquare, Mic as MicIcon, Plus } from 'lucide-react';
 import { ChatApp } from '../ChatApp';
 import { VoiceMode } from './VoiceMode';
+import { PreferencesProvider, usePreferences } from '../PreferencesContext';
+import { ShortlistDrawer } from './ShortlistDrawer';
+import { Heart } from 'lucide-react';
 
-export const ChatViewMode: React.FC = () => {
+const ChatViewModeContent: React.FC = () => {
   const [mode, setMode] = useState<'text' | 'voice'>(() => {
     const savedMode = sessionStorage.getItem('chatMode');
     return (savedMode === 'voice' || savedMode === 'text') ? savedMode : 'text';
@@ -36,6 +39,7 @@ export const ChatViewMode: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <ShortlistButton />
           <button
             onClick={() => {
               const event = new CustomEvent('chatbot:new-chat');
@@ -78,6 +82,37 @@ export const ChatViewMode: React.FC = () => {
       <div className="flex min-h-0 flex-1 flex-col bg-transparent">
         {mode === 'text' ? <ChatApp /> : <VoiceMode formatPrice={formatPrice} />}
       </div>
+      
+      <ShortlistDrawer formatPrice={formatPrice} />
     </div>
+  );
+};
+
+const ShortlistButton: React.FC = () => {
+  const { shortlistedProperties, setIsDrawerOpen } = usePreferences();
+  const count = shortlistedProperties.length;
+
+  return (
+    <button
+      onClick={() => setIsDrawerOpen(true)}
+      className="relative flex h-10 w-10 items-center justify-center rounded-full border border-border bg-white text-muted-foreground transition-all hover:-translate-y-0.5 hover:border-primary hover:text-primary hover:shadow-sm"
+      aria-label="View Shortlist"
+      title="View Shortlist"
+    >
+      <Heart className={`h-4 w-4 ${count > 0 ? 'fill-primary text-primary' : ''}`} />
+      {count > 0 && (
+        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white shadow-sm ring-2 ring-white">
+          {count}
+        </span>
+      )}
+    </button>
+  );
+};
+
+export const ChatViewMode: React.FC = () => {
+  return (
+    <PreferencesProvider>
+      <ChatViewModeContent />
+    </PreferencesProvider>
   );
 };

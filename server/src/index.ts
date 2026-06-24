@@ -13,7 +13,7 @@ import errorHandlerMiddleware from "./middlewares/errorHandler";
 import notFoundMiddleware from "./middlewares/notFound";
 import cookieParser from "cookie-parser";
 
-dotenv.config();
+dotenv.config({ override: true });
 
 connectDB();
 

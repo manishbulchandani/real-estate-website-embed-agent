@@ -10,6 +10,7 @@ export interface VoiceSessionConfig {
 export interface VoiceTokenRequest {
   sessionId?: string;
   identity?: string;
+  language?: string;
 }
 
 export interface Property {

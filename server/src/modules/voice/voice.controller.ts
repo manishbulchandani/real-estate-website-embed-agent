@@ -12,14 +12,18 @@ export const createVoiceSessionToken = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { sessionId, identity } = req.body ?? {};
+    const { sessionId, identity, language } = req.body ?? {};
 
     const normalizedSessionId =
       typeof sessionId === "string" && sessionId.trim().length > 0
         ? sessionId.trim()
         : crypto.randomUUID();
 
-    const roomName = `voice-${normalizedSessionId}`;
+    const cleanLanguage = typeof language === "string" && ["Hinglish", "English", "Marathi"].includes(language)
+      ? language
+      : "Hinglish";
+
+    const roomName = `voice-${cleanLanguage}-${normalizedSessionId}`;
     const participantIdentity =
       typeof identity === "string" && identity.trim().length > 0
         ? identity.trim()

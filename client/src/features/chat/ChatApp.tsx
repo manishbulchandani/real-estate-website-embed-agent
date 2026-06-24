@@ -5,14 +5,15 @@ import type { Message } from './types';
 import { generateUUID } from '../../utils/uuid';
 import { ChatInput } from './components/ChatInput';
 import { MessageItem } from './components/MessageItem';
+import { usePreferences } from './PreferencesContext';
 
 interface ChatAppProps {
 }
 
 export const ChatApp: React.FC<ChatAppProps> = () => {
+  const { updateFromVoice, sessionId } = usePreferences();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
-  const [sessionId, setSessionId] = useState(() => localStorage.getItem('chatSessionId') || generateUUID());
   const [showTyping, setShowTyping] = useState(false);
   
   const [sendChatMessage, { isLoading }] = useSendChatMessageMutation();
@@ -34,6 +35,13 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
   }, [messages, showTyping, isFetchingHistory]);
 
   useEffect(() => {
+    if (historyData?.success && historyData.messages && !historyLoadedRef.current) {
+      historyLoadedRef.current = true;
+      setMessages(historyData.messages);
+    }
+  }, [historyData]);
+
+  useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
     if (isLoading) {
       timeout = setTimeout(() => setShowTyping(true), 600);
@@ -44,17 +52,6 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
   }, [isLoading]);
 
   useEffect(() => {
-    localStorage.setItem('chatSessionId', sessionId);
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (historyData?.success && historyData.messages && !historyLoadedRef.current) {
-      historyLoadedRef.current = true;
-      setMessages(historyData.messages);
-    }
-  }, [historyData]);
-
-  const handleNewChat = () => {
     if (isRequestInFlightRef.current && currentRequestRef.current) {
       currentRequestRef.current.abort();
     }
@@ -62,18 +59,8 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
     isRequestInFlightRef.current = false;
     currentRequestRef.current = null;
     historyLoadedRef.current = false;
-    setSessionId(generateUUID());
     setMessages([]);
-  };
-
-  useEffect(() => {
-    const handleExternalNewChat = () => handleNewChat();
-    window.addEventListener('chatbot:new-chat', handleExternalNewChat);
-
-    return () => {
-      window.removeEventListener('chatbot:new-chat', handleExternalNewChat);
-    };
-  }, [handleNewChat]);
+  }, [sessionId]);
 
   const dispatchToAgent = async (messageBatch: string[]) => {
     isRequestInFlightRef.current = true;
@@ -84,6 +71,10 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
       isRequestInFlightRef.current = false;
 
       if (data.success && data.messages) {
+        if (data.preferences) {
+          updateFromVoice(data.preferences.shortlistedProperties, data.preferences.notInterestedProperties);
+        }
+
         const agentMessages = data.messages.map((msg: any) => ({
           id: generateUUID(),
           sender: 'agent' as const,

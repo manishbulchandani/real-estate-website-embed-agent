@@ -1,7 +1,7 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 export type ChatMessageSender = "user" | "agent";
-export type ChatMessageType = "text" | "properties" | "image" | "pdf" | "booking";
+export type ChatMessageType = "text" | "properties" | "image" | "pdf";
 
 export interface IChatMessage {
   id?: string;
@@ -14,6 +14,8 @@ export interface IChatMessage {
 export interface IChatSession extends Document {
   sessionId: string;
   messages: IChatMessage[];
+  shortlistedProperties: string[];
+  notInterestedProperties: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,7 +24,7 @@ const chatMessageSchema = new Schema<IChatMessage>(
   {
     id: { type: String, optional: true },
     sender: { type: String, required: true, enum: ["user", "agent"] },
-    type: { type: String, required: true, enum: ["text", "properties", "image", "pdf", "booking"] },
+    type: { type: String, required: true, enum: ["text", "properties", "image", "pdf"] },
     content: { type: String, optional: true },
     data: { type: Schema.Types.Mixed, optional: true },
   },
@@ -33,6 +35,8 @@ const chatSessionSchema = new Schema<IChatSession>(
   {
     sessionId: { type: String, required: true, unique: true, index: true },
     messages: { type: [chatMessageSchema], default: [] },
+    shortlistedProperties: { type: [String], default: [] },
+    notInterestedProperties: { type: [String], default: [] },
   },
   { timestamps: true },
 );

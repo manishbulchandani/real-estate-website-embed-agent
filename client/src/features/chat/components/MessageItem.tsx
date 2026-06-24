@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, Bot, FileText, Calendar, Clock, CheckCircle2 } from 'lucide-react';
+import { User, Bot, FileText } from 'lucide-react';
 import type { Message } from '../types';
 import { PropertyCarousel } from './PropertyCarousel';
 
@@ -89,52 +89,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ msg, formatPrice }) =>
         </a>
       )}
 
-      {msg.type === 'booking' && msg.data && (
-        <div className="flex flex-col rounded-[1.5rem] border border-emerald-100 bg-emerald-50/45 p-5 shadow-sm backdrop-blur-xl max-w-[320px] sm:max-w-md mt-1.5 transition-all hover:shadow-md">
-          <div className="flex items-center justify-between gap-3 pb-3 border-b border-emerald-100/60">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                <CheckCircle2 className="h-4 w-4" />
-              </div>
-              <span className="text-base font-semibold text-slate-950 tracking-tight">{msg.data.propertyName}</span>
-            </div>
-            <span className="inline-flex items-center rounded-full bg-emerald-200/60 px-2.5 py-0.5 text-xs font-semibold text-emerald-900">
-              {msg.data.status || 'Confirmed'}
-            </span>
-          </div>
-          
-          <div className="mt-3.5 grid grid-cols-2 gap-3 text-xs text-slate-700 pb-3.5 border-b border-emerald-100/60">
-            <div className="flex items-start gap-2">
-              <Calendar className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
-              <div className="flex flex-col">
-                <span className="font-semibold text-slate-400 block mb-0.5 tracking-wider uppercase text-[10px]">Date</span>
-                <span className="text-slate-800 font-semibold">{msg.data.date}</span>
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <Clock className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
-              <div className="flex flex-col">
-                <span className="font-semibold text-slate-400 block mb-0.5 tracking-wider uppercase text-[10px]">Time Slot</span>
-                <span className="text-slate-800 font-semibold">{msg.data.timeSlot}</span>
-              </div>
-            </div>
-          </div>
 
-          <div className="mt-3.5 flex items-end justify-between text-xs">
-            <div className="flex flex-col text-slate-600">
-              <span className="font-semibold text-slate-400 tracking-wider uppercase text-[10px] mb-0.5">Visitor Contact</span>
-              <span className="text-slate-800 font-bold">{msg.data.userName}</span>
-              <span className="text-slate-600 font-medium">{msg.data.userPhone}</span>
-            </div>
-            <div className="flex flex-col items-end">
-              <span className="font-semibold text-slate-400 tracking-wider uppercase text-[10px] mb-1">Booking ID</span>
-              <span className="font-mono text-xs text-emerald-700 font-bold bg-emerald-100/70 px-2.5 py-0.5 rounded shadow-sm border border-emerald-200/30">
-                {msg.data.bookingId}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

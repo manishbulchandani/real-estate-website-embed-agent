@@ -11,6 +11,7 @@ import type { Property } from '../types';
 import { PropertyCarousel } from './PropertyCarousel';
 import { useCreateVoiceTokenMutation } from '../voiceApi';
 import { generateUUID } from '../../../utils/uuid';
+import { usePreferences } from '../PreferencesContext';
 
 interface VoiceSessionConfig {
   roomName: string;
@@ -105,6 +106,7 @@ const VoiceVisualizer: React.FC<{
 export const VoiceMode: React.FC<VoiceModeProps> = ({
   formatPrice,
 }) => {
+  const { updateFromVoice, sessionId } = usePreferences();
   const [state, setState] = useState<VoiceConnectionState>({
     isConnected: false,
     isConnecting: false,
@@ -141,6 +143,13 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   const remoteAudioContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [createVoiceToken] = useCreateVoiceTokenMutation();
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
+    return localStorage.getItem('voiceSelectedLanguage') || 'Hinglish';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('voiceSelectedLanguage', selectedLanguage);
+  }, [selectedLanguage]);
 
   const clearRemoteAudioElements = () => {
     if (remoteAudioContainerRef.current) {
@@ -168,12 +177,12 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
         );
       }
 
-      const sessionId = localStorage.getItem('chatSessionId') || generateUUID();
       const identity = `web-user-${generateUUID().slice(0, 8)}`;
 
       const config = await createVoiceToken({
         sessionId,
         identity,
+        language: selectedLanguage,
       }).unwrap();
 
       sessionConfigRef.current = config;
@@ -308,10 +317,12 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
                   if (prev.some(b => b.bookingId === data.booking.bookingId)) return prev;
                   return [...prev, data.booking];
                 });
+              } else if (data.type === 'voice_preference_update' && data.preferences) {
+                updateFromVoice(data.preferences.shortlistedProperties, data.preferences.notInterestedProperties);
               }
             } catch (error) {
               console.error(
-                '[Voice] Failed to parse recommendation:',
+                '[Voice] Failed to parse recommendation/preference:',
                 error,
               );
             }
@@ -359,29 +370,22 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   };
 
   useEffect(() => {
-    const handleNewSession = () => {
-      disconnectVoice();
-      setVoiceProperties([]);
-      setSeenPropertyIds(new Set());
-      setVoiceBookings([]);
-      sessionStorage.removeItem('voiceProperties');
-      sessionStorage.removeItem('seenPropertyIds');
-      sessionStorage.removeItem('voiceBookings');
-      setState({
-        isConnected: false,
-        isConnecting: false,
-        isSpeaking: false,
-        isListening: false,
-        error: null,
-        transcript: '',
-      });
-    };
-
-    window.addEventListener('chatbot:new-chat', handleNewSession);
-    return () => {
-      window.removeEventListener('chatbot:new-chat', handleNewSession);
-    };
-  }, []);
+    disconnectVoice();
+    setVoiceProperties([]);
+    setSeenPropertyIds(new Set());
+    setVoiceBookings([]);
+    sessionStorage.removeItem('voiceProperties');
+    sessionStorage.removeItem('seenPropertyIds');
+    sessionStorage.removeItem('voiceBookings');
+    setState({
+      isConnected: false,
+      isConnecting: false,
+      isSpeaking: false,
+      isListening: false,
+      error: null,
+      transcript: '',
+    });
+  }, [sessionId]);
 
   useEffect(() => {
     return () => {
@@ -562,23 +566,45 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
                   <p className="mt-3 text-xs font-medium text-slate-600">Connecting to voice...</p>
                 </div>
               ) : (
-                <button
-                  onClick={connectToVoice}
-                  className="
-                    inline-flex items-center gap-2
-                    rounded-full
-                    px-4 py-2
-                    font-medium text-white text-sm
-                    transition-all duration-200
-                    active:scale-95
-                  "
-                  style={{
-                    backgroundColor: '#6495ce',
-                    boxShadow: '0 15px 30px rgba(100, 149, 206, 0.3)'
-                  }}
-                >
-                  Continue
-                </button>
+                <>
+                  <div className="mt-2 mb-4 flex flex-col items-center w-full text-center gap-1.5 max-w-xs">
+                    <label htmlFor="voice-lang-select-continue" className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                      Language
+                    </label>
+                    <select
+                      id="voice-lang-select-continue"
+                      value={selectedLanguage}
+                      onChange={(e) => setSelectedLanguage(e.target.value)}
+                      disabled={state.isConnecting}
+                      className="
+                        w-full max-w-[200px] rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs text-slate-700
+                        shadow-sm outline-none transition-all duration-200 hover:border-slate-300 focus:border-blue-400
+                        disabled:opacity-60 disabled:cursor-not-allowed text-center
+                      "
+                    >
+                      <option value="Hinglish">Hindi (Hinglish)</option>
+                      <option value="English">English</option>
+                      <option value="Marathi">Marathi (मराठी)</option>
+                    </select>
+                  </div>
+                  <button
+                    onClick={connectToVoice}
+                    className="
+                      inline-flex items-center gap-2
+                      rounded-full
+                      px-4 py-2
+                      font-medium text-white text-sm
+                      transition-all duration-200
+                      active:scale-95
+                    "
+                    style={{
+                      backgroundColor: '#6495ce',
+                      boxShadow: '0 15px 30px rgba(100, 149, 206, 0.3)'
+                    }}
+                  >
+                    Continue
+                  </button>
+                </>
               )}
             </div>
           ) : (
@@ -610,6 +636,27 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
                   location, and budget preferences.
                 </p>
 
+                <div className="mt-5 flex flex-col items-center w-full text-center gap-1.5">
+                  <label htmlFor="voice-lang-select" className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Select Language
+                  </label>
+                  <select
+                    id="voice-lang-select"
+                    value={selectedLanguage}
+                    onChange={(e) => setSelectedLanguage(e.target.value)}
+                    disabled={state.isConnecting}
+                    className="
+                      w-full max-w-[240px] rounded-full border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700
+                      shadow-sm outline-none transition-all duration-200 hover:border-slate-300 focus:border-blue-400
+                      disabled:opacity-60 disabled:cursor-not-allowed text-center
+                    "
+                  >
+                    <option value="Hinglish">Hindi (Hinglish)</option>
+                    <option value="English">English</option>
+                    <option value="Marathi">Marathi (मराठी)</option>
+                  </select>
+                </div>
+ 
                 <button
                   onClick={connectToVoice}
                   disabled={state.isConnecting}

@@ -1,8 +1,125 @@
 import { Request, Response } from "express";
 import { agentApp } from "./agent";
 import { Project } from "../properties/models/project.model";
+import { Listing } from "../properties/models/listing.model";
 import { HumanMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
 import { ChatSession } from "./models/chatSession.model";
+
+const mapListingToProperty = (p: any): any => {
+  const listingImages = Array.isArray(p.metadata?.images) ? p.metadata.images : [];
+  const project = p.projectId && typeof p.projectId === "object" ? p.projectId : null;
+  const projectImages = project && Array.isArray(project.images) ? project.images : [];
+  const images = listingImages.length > 0 ? listingImages : projectImages;
+
+  return {
+    id: p._id.toString(),
+    title: p.title || "Property Listing",
+    description: p.description || "",
+    price: Number(p.metadata?.price || 0),
+    bhk: Number(p.metadata?.bhk || 0),
+    propertyType: String(p.metadata?.propertyType || "Property"),
+    images,
+    locality: p.location?.locality || "Unknown",
+    city: p.location?.city || "Unknown",
+    project: project ? {
+      id: project._id.toString(),
+      title: project.title || "",
+      webpageUrl: project.webpageUrl || null
+    } : null
+  };
+};
+
+
+export const togglePropertyPreference = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sessionId } = req.params;
+    const { propertyId, action } = req.body;
+
+    if (!sessionId || !propertyId || !action) {
+      res.status(400).json({ success: false, error: "sessionId, propertyId, and action are required" });
+      return;
+    }
+
+    const validActions = ["shortlist", "remove_shortlist", "not_interested", "remove_not_interested"];
+    if (!validActions.includes(action)) {
+      res.status(400).json({ success: false, error: "Invalid action" });
+      return;
+    }
+
+    const session = await ChatSession.findOneAndUpdate(
+      { sessionId },
+      { $setOnInsert: { sessionId } },
+      { upsert: true, new: true }
+    );
+
+    let updatedShortlist = new Set(session.shortlistedProperties || []);
+    let updatedNotInterested = new Set(session.notInterestedProperties || []);
+
+    if (action === "shortlist") {
+      updatedShortlist.add(propertyId);
+      updatedNotInterested.delete(propertyId);
+    } else if (action === "remove_shortlist") {
+      updatedShortlist.delete(propertyId);
+    } else if (action === "not_interested") {
+      updatedNotInterested.add(propertyId);
+      updatedShortlist.delete(propertyId);
+    } else if (action === "remove_not_interested") {
+      updatedNotInterested.delete(propertyId);
+    }
+
+    session.shortlistedProperties = Array.from(updatedShortlist);
+    session.notInterestedProperties = Array.from(updatedNotInterested);
+    await session.save();
+
+    const propertyIdsToFetch = [...new Set([...session.shortlistedProperties, ...session.notInterestedProperties])];
+    let populatedProperties: any[] = [];
+    if (propertyIdsToFetch.length > 0) {
+      const listings = await Listing.find({ _id: { $in: propertyIdsToFetch } }).populate('projectId').lean().exec();
+      populatedProperties = listings.map(mapListingToProperty);
+    }
+
+    res.status(200).json({
+      success: true,
+      shortlistedProperties: session.shortlistedProperties,
+      notInterestedProperties: session.notInterestedProperties,
+      properties: populatedProperties,
+    });
+  } catch (error: any) {
+    console.error("Toggle Preference Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
+
+export const getPreferences = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { sessionId } = req.params;
+    if (!sessionId) {
+      res.status(400).json({ success: false, error: "sessionId is required" });
+      return;
+    }
+
+    const session = await ChatSession.findOne({ sessionId }).lean().exec();
+    const shortlistedIds = session?.shortlistedProperties || [];
+    const notInterestedIds = session?.notInterestedProperties || [];
+
+    const propertyIdsToFetch = [...new Set([...shortlistedIds, ...notInterestedIds])];
+    let populatedProperties: any[] = [];
+    if (propertyIdsToFetch.length > 0) {
+      const listings = await Listing.find({ _id: { $in: propertyIdsToFetch } }).populate('projectId').lean().exec();
+      populatedProperties = listings.map(mapListingToProperty);
+    }
+
+    res.status(200).json({
+      success: true,
+      shortlistedProperties: shortlistedIds,
+      notInterestedProperties: notInterestedIds,
+      properties: populatedProperties
+    });
+  } catch (error: any) {
+    console.error("Get Preferences Error:", error);
+    res.status(500).json({ success: false, error: "Internal server error" });
+  }
+};
 
 export const chatWithAgent = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -17,6 +134,7 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
 
     const initialState = {
       messages: messageTexts.map((m: string) => new HumanMessage(m)),
+      sessionId: sessionId,
     };
 
     const abortController = new AbortController();
@@ -27,11 +145,11 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
       }
     });
 
-    const config = { 
+    const config = {
       configurable: { thread_id: sessionId },
       signal: abortController.signal
     };
-    
+
     // agentApp.invoke will process the new message and run through the nodes
     let result;
     try {
@@ -56,7 +174,7 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
     }
 
     const newMessages = messages.slice(lastHumanIndex + 1);
-    
+
     // Pass 1: get property_search results for full data
     const allPropertiesFound = new Map<string, any>();
     for (const msg of newMessages) {
@@ -66,7 +184,7 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
           if (Array.isArray(props)) {
             props.forEach(p => allPropertiesFound.set(p.id.toString(), p));
           }
-        } catch(e) {}
+        } catch (e) { }
       }
     }
 
@@ -118,16 +236,6 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
         } catch (e) {
           console.error("Failed to parse send_media tool content", e);
         }
-      } else if (msg instanceof ToolMessage && msg.name === "book_visit") {
-        try {
-          const bookingInfo = JSON.parse(msg.content as string);
-          outputMessages.push({
-            type: "booking",
-            data: bookingInfo
-          });
-        } catch (e) {
-          console.error("Failed to parse book_visit tool content", e);
-        }
       } else if (msg instanceof AIMessage) {
         if (msg.content && typeof msg.content === "string" && msg.content.trim().length > 0) {
           outputMessages.push({
@@ -172,9 +280,23 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
       ).exec();
     }
 
+    const updatedSession = await ChatSession.findOne({ sessionId }).lean().exec();
+
+    const propertyIdsToFetch = [...new Set([...(updatedSession?.shortlistedProperties || []), ...(updatedSession?.notInterestedProperties || [])])];
+    let populatedProperties: any[] = [];
+    if (propertyIdsToFetch.length > 0) {
+      const listings = await Listing.find({ _id: { $in: propertyIdsToFetch } }).populate('projectId').lean().exec();
+      populatedProperties = listings.map(mapListingToProperty);
+    }
+
     res.status(200).json({
       success: true,
       messages: outputMessages,
+      preferences: {
+        shortlistedProperties: updatedSession?.shortlistedProperties || [],
+        notInterestedProperties: updatedSession?.notInterestedProperties || [],
+        properties: populatedProperties
+      }
     });
   } catch (error: any) {
     console.error("Agent Chat Error:", error);
@@ -203,13 +325,13 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
     const state = await agentApp.getState(config);
 
     if (!state || !state.values || !state.values.messages) {
-       res.status(200).json({ success: true, messages: [] });
-       return;
+      res.status(200).json({ success: true, messages: [] });
+      return;
     }
 
     const messages = state.values.messages;
     const outputMessages: any[] = [];
-    
+
     // First pass: collect all properties from property_search
     const allPropertiesFound = new Map<string, any>();
     for (const msg of messages) {
@@ -219,7 +341,7 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
           if (Array.isArray(props)) {
             props.forEach(p => allPropertiesFound.set(p.id.toString(), p));
           }
-        } catch(e) {}
+        } catch (e) { }
       }
     }
 
@@ -272,7 +394,7 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
               });
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       } else if (msg instanceof ToolMessage && msg.name === "send_media") {
         try {
           const mediaInfo = JSON.parse(msg.content as string);
@@ -286,17 +408,7 @@ export const getChatHistory = async (req: Request, res: Response): Promise<void>
               propertyName: mediaInfo.propertyName,
             }
           });
-        } catch (e) {}
-      } else if (msg instanceof ToolMessage && msg.name === "book_visit") {
-        try {
-          const bookingInfo = JSON.parse(msg.content as string);
-          outputMessages.push({
-            id: msg.id || i.toString(),
-            sender: "agent",
-            type: "booking",
-            data: bookingInfo
-          });
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 

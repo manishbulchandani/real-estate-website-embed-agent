@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import { z } from "zod";
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const envSchema = z.object({
   NODE_ENV: z
@@ -11,7 +11,7 @@ const envSchema = z.object({
 
   MONGO_URI: z.string().min(1, "MONGO_URI is required"),
   FRONTEND_URL: z.string().url("FRONTEND_URL must be a valid URL"),
-  GEMINI_API_KEY: z.string().min(1, "GEMINI_API_KEY is required"),
+  GEMINI_API_KEY: z.string().optional(),
   LIVEKIT_URL: z.string().url("LIVEKIT_URL must be a valid URL"),
   LIVEKIT_API_KEY: z.string().min(1, "LIVEKIT_API_KEY is required"),
   LIVEKIT_API_SECRET: z.string().min(1, "LIVEKIT_API_SECRET is required"),
@@ -19,6 +19,13 @@ const envSchema = z.object({
   ELEVENLABS_VOICE_ID: z.string().optional(),
   ELEVENLABS_API_KEY: z.string().optional(),
   DEEPGRAM_API_KEY: z.string().optional(),
+  OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
+  OPENROUTER_VOICE_MODEL: z.string().default("google/gemini-2.5-flash"),
+  OPENROUTER_CHAT_MODEL: z.string().default("google/gemini-2.5-flash"),
+
+  // Internal backend-agent communication
+  BACKEND_AGENT_URL: z.string().url("BACKEND_AGENT_URL must be a valid URL").default("http://localhost:8000"),
+  BACKEND_AGENT_SECRET: z.string().min(1, "BACKEND_AGENT_SECRET is required"),
 });
 
 /**
