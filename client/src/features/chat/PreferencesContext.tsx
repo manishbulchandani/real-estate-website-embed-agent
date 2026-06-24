@@ -45,7 +45,7 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     return () => window.removeEventListener('chatbot:new-chat', handleNewChat);
   }, [startNewSession]);
 
-  const { data, refetch } = useGetPreferencesQuery(sessionId, { skip: !sessionId });
+  const { data } = useGetPreferencesQuery(sessionId, { skip: !sessionId });
   const [togglePreferenceMutation] = useTogglePreferenceMutation();
 
   const registerProperties = useCallback((properties: Property[]) => {
