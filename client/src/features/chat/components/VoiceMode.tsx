@@ -143,13 +143,7 @@ export const VoiceMode: React.FC<VoiceModeProps> = ({
   const remoteAudioContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [createVoiceToken] = useCreateVoiceTokenMutation();
-  const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
-    return localStorage.getItem('voiceSelectedLanguage') || 'Hinglish';
-  });
-
-  useEffect(() => {
-    localStorage.setItem('voiceSelectedLanguage', selectedLanguage);
-  }, [selectedLanguage]);
+  const { selectedLanguage, setSelectedLanguage } = usePreferences();
 
   const clearRemoteAudioElements = () => {
     if (remoteAudioContainerRef.current) {

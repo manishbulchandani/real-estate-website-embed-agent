@@ -11,7 +11,7 @@ interface ChatAppProps {
 }
 
 export const ChatApp: React.FC<ChatAppProps> = () => {
-  const { updateFromVoice, sessionId } = usePreferences();
+  const { updateFromVoice, sessionId, selectedLanguage, setSelectedLanguage } = usePreferences();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [showTyping, setShowTyping] = useState(false);
@@ -65,7 +65,7 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
   const dispatchToAgent = async (messageBatch: string[]) => {
     isRequestInFlightRef.current = true;
     try {
-      const promise = sendChatMessage({ sessionId, messages: messageBatch });
+      const promise = sendChatMessage({ sessionId, messages: messageBatch, language: selectedLanguage });
       currentRequestRef.current = promise;
       const data = await promise.unwrap();
       isRequestInFlightRef.current = false;
@@ -150,19 +150,24 @@ export const ChatApp: React.FC<ChatAppProps> = () => {
             <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground sm:text-base">
               Ask me to find properties, recommend neighborhoods, or filter by your budget and preferences.
             </p>
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
-              {['Show me 3 BHK in Andheri', 'Properties under 2 Cr', 'Villas for rent'].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => {
-                    setInputValue(suggestion);
-                    setTimeout(() => handleSend(), 50);
-                  }}
-                  className="rounded-full border border-border bg-white/90 px-4 py-2 text-sm font-medium text-secondary-foreground shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary hover:text-primary hover:shadow-md"
-                >
-                  {suggestion}
-                </button>
-              ))}
+            <div className="mt-6 flex flex-col items-center w-full text-center gap-1.5">
+              <label htmlFor="chat-lang-select" className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Select Language
+              </label>
+              <select
+                id="chat-lang-select"
+                value={selectedLanguage}
+                onChange={(e) => setSelectedLanguage(e.target.value)}
+                className="
+                  w-full max-w-[240px] rounded-full border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700
+                  shadow-sm outline-none transition-all duration-200 hover:border-slate-300 focus:border-blue-400
+                  text-center cursor-pointer hover:bg-slate-50/50
+                "
+              >
+                <option value="Hinglish">Hindi (Hinglish)</option>
+                <option value="English">English</option>
+                <option value="Marathi">Marathi (मराठी)</option>
+              </select>
             </div>
           </div>
         ) : (

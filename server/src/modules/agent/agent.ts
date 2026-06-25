@@ -100,6 +100,18 @@ const langDetectModel = new ChatOpenAI({
  * Stores result in state so callModel can inject it as a hard language mandate.
  */
 async function detectLanguageNode(state: AgentState): Promise<Partial<AgentState>> {
+  // If an explicit language is passed (e.g. from a dropdown selection in the UI)
+  if (state.detectedLanguage === "English") {
+    console.log(`[LangDetect] Explicit language selection: "English"`);
+    return { detectedLanguage: "English" };
+  } else if (state.detectedLanguage === "Hinglish") {
+    console.log(`[LangDetect] Explicit language selection: "Hinglish"`);
+    return { detectedLanguage: "Hindi written in Roman script (Hinglish style — use English letters to write Hindi words, NOT Devanagari or any Indian script characters)" };
+  } else if (state.detectedLanguage === "Marathi") {
+    console.log(`[LangDetect] Explicit language selection: "Marathi"`);
+    return { detectedLanguage: "Marathi written in Roman script (Hinglish style — use English letters to write Marathi words, NOT Devanagari or any Indian script characters)" };
+  }
+
   const lastHuman = [...state.messages].reverse().find((m) => m instanceof HumanMessage);
 
   if (!lastHuman || typeof lastHuman.content !== "string" || lastHuman.content.trim().length < 2) {

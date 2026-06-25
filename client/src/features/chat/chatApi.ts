@@ -3,6 +3,7 @@ import { baseApi } from '../../app/baseApi';
 export interface ChatRequest {
   sessionId: string;
   messages: string[];
+  language?: string;
 }
 
 export interface ChatResponse {

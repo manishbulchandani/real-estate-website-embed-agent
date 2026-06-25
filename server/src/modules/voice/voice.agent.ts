@@ -218,11 +218,31 @@ export const voiceAgentDefinition = defineAgent({
 
     let aiPitchInstruction = "";
     if (language === "English") {
-      aiPitchInstruction = "The ai_pitch for every property must be strictly in English only (e.g. 'This property is in Kharghar, very spacious and close to the metro.').";
+      aiPitchInstruction = "The ai_pitch for every property must be strictly in English only (e.g. 'This property is in Kharghar, very spacious and close to the metro.'). Use actual digits for numbers (e.g. '2 BHK', NOT 'two BHK').";
     } else if (language === "Marathi") {
-      aiPitchInstruction = "The ai_pitch for every property must be in Marathi sound/style written in the English/Roman alphabet only — never Devanagari (e.g. 'He property Kharghar madhye ahe, khup spacious ahe ani metro javal ahe.').";
+      aiPitchInstruction = "The ai_pitch for every property MUST BE WRITTEN IN MARATHI-ENGLISH MIX (Marathi words written using the English/Roman alphabet) — never Devanagari and never pure English. Example: 'He property Kharghar madhye ahe, khup spacious ahe ani metro javal ahe.' Use actual digits for numbers (e.g. '2 BHK', NOT 'two BHK').";
     } else {
-      aiPitchInstruction = "The ai_pitch for every property must be in Hinglish sound/style written in the English/Roman alphabet only — never Devanagari (e.g. 'Yeh property Kharghar mein hai, very spacious aur metro ke paas.').";
+      aiPitchInstruction = "The ai_pitch for every property MUST BE WRITTEN IN HINGLISH (Hindi words written using the English/Roman alphabet) — never Devanagari and never pure English. Example: 'Yeh property Kharghar mein hai, very spacious aur metro ke paas.' Use actual digits for numbers (e.g. '2 BHK', NOT 'two BHK').";
+    }
+
+    // Language-specific spoken formatting rules
+    let spokenLanguageRules = "";
+    if (language === "English") {
+      spokenLanguageRules = `
+- Write your entire response in natural English (Latin script).
+- Numbers must ALWAYS be spelled out as English words (e.g. "one", "two", "three", "four") instead of digits (e.g. "1", "2").`;
+    } else if (language === "Marathi") {
+      spokenLanguageRules = `
+- Write Marathi words strictly in Devanagari script.
+- Write English words (such as options, available, property, BHK, city names like Navi Mumbai, Airoli, etc.) strictly in English/Latin script.
+- CRITICAL: Never mix English and Devanagari letters in a single word (e.g. never write 'oNप्रशंस' or 'ऑप्शंस'). Keep English words completely in Latin script (e.g. 'options') and Marathi words completely in Devanagari.
+- Numbers must ALWAYS be written as Marathi words in Devanagari script (e.g. "एक", "दोन", "तीन", "चार", "पाच", "सहा") instead of digits (e.g. "1", "2") or English words (e.g. "one", "two").`;
+    } else {
+      spokenLanguageRules = `
+- Write Hindi words strictly in Devanagari script.
+- Write English words (such as options, available, property, BHK, city names like Navi Mumbai, Airoli, etc.) strictly in English/Latin script.
+- CRITICAL: Never mix English and Devanagari letters in a single word (e.g. never write 'oNप्रशंस' or 'ऑप्शंस'). Keep English words completely in Latin script (e.g. 'options') and Hindi words completely in Devanagari.
+- Numbers must ALWAYS be written as Hindi words in Devanagari script (e.g. "एक", "दो", "तीन", "चार", "पाँच", "छह") instead of digits (e.g. "1", "2") or English words (e.g. "one", "two").`;
     }
 
     // ── SYSTEM PROMPT ────────────────────────────────────────────────────────
@@ -230,10 +250,11 @@ export const voiceAgentDefinition = defineAgent({
     // create conflicting rule prioritization. Each rule here is a hard constraint.
     const instructions = `You are Shriya, a warm, professional real estate voice advisor. Help users find suitable homes through natural conversation.
 
-LANGUAGE & TONE (NON-NEGOTIABLE):
+LANGUAGE & TONE FOR SPOKEN RESPONSES (NON-NEGOTIABLE):
+- These rules apply ONLY to your spoken conversation/messages, NOT to the ai_pitch text.
 - ${langConfig.systemInstruction}
-- Proper nouns, city names, BHK, EMI, RERA always stay in English script regardless.
-- Numbers must ALWAYS be spelled out as English words (e.g. "one", "two", "three", "four") instead of digits (e.g. "1", "2"). Do NOT use Devanagari numbers.
+${spokenLanguageRules}
+- TONE: Use an active, warm, lively, and enthusiastic conversational tone. Avoid passive, stiff, or robotic phrasing. Instead of saying passive things like "मैं चेक कर रही हूँ..." (I am checking), use active, natural, and energetic phrasing (e.g. "ठीक है, एक सेकंड रुकिए, मैं तुरंत चेक करती हूँ!", "बिल्कुल, मैं अभी आपके लिए बेस्ट ऑप्शंस देखती हूँ!", "Sure, let me check that for you right away!").
 - Keep sentences under 12 words — this is spoken audio.
 - Plain text only. No emojis, no markdown, no asterisks, no exclamation marks, no lists.
 - Never output reasoning or internal monologue. Start directly with your spoken words.
@@ -241,7 +262,7 @@ LANGUAGE & TONE (NON-NEGOTIABLE):
 MANDATORY FILLER PHRASES (CRITICAL VOICE RULE):
 You are a voice agent. Dead silence during tool calls is a critical failure.
 Whenever you decide to call the property_search tool, you MUST first output a short, warm filler sentence (AS PLAIN TEXT) BEFORE you emit the tool call JSON.
-CRITICAL: This filler sentence MUST be dynamically generated, context-aware, and spoken in the EXACT SAME LANGUAGE and tone as the conversation (e.g., if the user speaks Hindi, say something naturally like "जी, मैं नवी मुंबई के लिए ऑप्शंस चेक कर रही हूँ..."). NEVER just copy a fixed English example.
+CRITICAL: This filler sentence MUST be dynamically generated, context-aware, and spoken in the EXACT SAME LANGUAGE, script, and tone as the conversation (e.g., if the user speaks Hindi, say something naturally like "जी, मैं Navi Mumbai के लिए options चेक कर रही हूँ..."). NEVER mix English and Devanagari characters in a single word.
 DO NOT put the filler phrase inside the tool parameters. You must speak it in the main conversation flow before the tool executes.
 
 SEARCH STRATEGY (follow strictly):
@@ -251,15 +272,27 @@ SEARCH STRATEGY (follow strictly):
 4. Once BHK or budget is known: call property_search with those filters (non-probe), then call display_recommended_properties.
 5. REUSE CONTEXT: before re-searching, check conversation history for matching results.
 
-DISPLAY RULE:
+DISPLAY & PROPERTY CARD RULE (FOR SCREEN ONLY):
 - Call display_recommended_properties only for non-probe results.
-- \${aiPitchInstruction}
+- The 'ai_pitch' field inside display_recommended_properties is displayed on the user's screen. It is NOT spoken.
+- For 'ai_pitch', do NOT follow the spoken response rules (meaning you must write in Roman script and use digits for numbers), but you MUST strictly follow the language style instruction below:
+- ${aiPitchInstruction}
+
+VISIT REQUEST FLOW:
+- Suggest a site visit request when the user shows strong interest.
+- Gather the required details naturally, one at a time: property name, preferred date, preferred time slot, user's name, and phone number.
+- PHONE CONFIRMATION: Once the user provides their phone number, briefly repeat and confirm it (e.g., "Just to confirm, your phone number is [number], right?").
+- Once the phone number is confirmed, call the 'book_visit' tool to submit the visit request.
+- POST-SUBMISSION: Inform the user that their visit request has been submitted, and our team will reach out to them on WhatsApp with further updates to coordinate the final schedule.
+
+CLOSURE & SIGN-OFF:
+- After executing a tool or completing a task (such as submitting a visit request), do not end the conversation abruptly.
+- Always ask the user if they need any further help (e.g. "क्या मैं आपके लिए कुछ और मदद कर सकती हूँ?" in Hindi/Marathi, or "Is there anything else I can help you with today?" in English).
+- Close the conversation with a warm, polite sign-off (e.g. "आपका दिन बहुत शुभ रहे!" in Hindi/Marathi, or "Have a wonderful day ahead!" in English).
 
 KNOWLEDGE & PERSONA:
 - Use your internal knowledge to answer real estate questions even if the DB lacks info.
 - For demo purposes: generate realistic dummy answers for possession dates, RERA numbers, amenity details if not available.
-- Suggest a site visit only when the user shows strong interest, not on the first message.
-- Ask for name and phone before calling book_visit.
 - Ask only ONE question at a time to keep it natural.`;
 
     // ── TOOLS ─────────────────────────────────────────────────────────────────
@@ -334,12 +367,12 @@ KNOWLEDGE & PERSONA:
     });
 
     const displayPropertiesToolTool = llm.tool({
-      description: `Display property recommendations on screen. Call this after a non-probe property_search. \${aiPitchInstruction}`,
+      description: `Display property recommendations on screen. Call this after a non-probe property_search. ${aiPitchInstruction}`,
       parameters: z.object({
         properties: z.array(
           z.object({
             id: z.string(),
-            ai_pitch: z.string().describe(`1-2 sentence pitch for the property. \${aiPitchInstruction}`),
+            ai_pitch: z.string().describe(`1-2 sentence pitch for the property. ${aiPitchInstruction}`),
           }),
         ),
       }),
@@ -524,22 +557,37 @@ Returns: { cities: string[] }`,
 
     const session = new voice.AgentSession({
       vad,
-      stt: new deepgram.STT({
-        // nova-2-general: the correct model for non-English languages.
-        // nova-2-conversationalai auto-downgrades to nova-2-general for hi/mr anyway (WARN in logs).
-        // Using nova-2-general directly avoids the warning and the performance overhead of the fallback path.
-        model: "nova-2-general",
-        language: langConfig.sttLanguage,
-        interimResults: true,
-        smartFormat: true,
-        noDelay: true,          // Minimize STT → LLM latency
-        keywords: STT_KEYWORDS,
-        apiKey: env.DEEPGRAM_API_KEY || process.env.DEEPGRAM_API_KEY,
-      }),
+      stt: (() => {
+        if (env.STT_PROVIDER === "elevenlabs") {
+          if (!env.ELEVENLABS_API_KEY) {
+            throw new Error("ELEVENLABS_API_KEY is required when STT_PROVIDER is set to 'elevenlabs'");
+          }
+          // ElevenLabs Scribe realtime expects standard ISO-639-1 or ISO-639-3 language codes (e.g. 'en' instead of 'en-IN')
+          const elevenLabsLanguage = langConfig.sttLanguage.startsWith("en") ? "en" : langConfig.sttLanguage;
+          console.log(`[Voice Agent] Initializing ElevenLabs STT with model ${env.ELEVENLABS_STT_MODEL} and language ${elevenLabsLanguage}`);
+          return new elevenlabs.STT({
+            modelId: env.ELEVENLABS_STT_MODEL,
+            apiKey: env.ELEVENLABS_API_KEY,
+            languageCode: elevenLabsLanguage,
+            keyterms: STT_KEYWORDS.map(([term]) => term),
+          });
+        } else {
+          console.log("[Voice Agent] Initializing Deepgram STT");
+          return new deepgram.STT({
+            model: "nova-2-general",
+            language: langConfig.sttLanguage,
+            interimResults: true,
+            smartFormat: true,
+            noDelay: true,
+            keywords: STT_KEYWORDS,
+            apiKey: env.DEEPGRAM_API_KEY,
+          });
+        }
+      })(),
       llm: llmInstance,
       tts: new elevenlabs.TTS({
         model: "eleven_flash_v2_5",
-        apiKey: env.ELEVENLABS_API_KEY || process.env.ELEVENLABS_API_KEY,
+        apiKey: env.ELEVENLABS_API_KEY,
         voiceId: env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL", // Default to Sarah (female voice)
         language: langConfig.ttsLanguage,
         enableSsmlParsing: false,   // Prevent Devanagari chars from breaking TTS

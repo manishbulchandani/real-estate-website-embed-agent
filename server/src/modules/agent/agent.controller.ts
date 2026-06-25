@@ -123,7 +123,7 @@ export const getPreferences = async (req: Request, res: Response): Promise<void>
 
 export const chatWithAgent = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { sessionId, message, messages: messagesArray } = req.body;
+    const { sessionId, message, messages: messagesArray, language } = req.body;
 
     if (!sessionId || (!message && !messagesArray?.length)) {
       res.status(400).json({ success: false, error: "sessionId and message(s) are required" });
@@ -135,6 +135,7 @@ export const chatWithAgent = async (req: Request, res: Response): Promise<void> 
     const initialState = {
       messages: messageTexts.map((m: string) => new HumanMessage(m)),
       sessionId: sessionId,
+      detectedLanguage: language, // Explicitly pass the user's selected language
     };
 
     const abortController = new AbortController();

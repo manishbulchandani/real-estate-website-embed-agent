@@ -19,6 +19,8 @@ const envSchema = z.object({
   ELEVENLABS_VOICE_ID: z.string().optional(),
   ELEVENLABS_API_KEY: z.string().optional(),
   DEEPGRAM_API_KEY: z.string().optional(),
+  STT_PROVIDER: z.enum(["deepgram", "elevenlabs"]).default("deepgram"),
+  ELEVENLABS_STT_MODEL: z.string().default("scribe_v2_realtime"),
   OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
   OPENROUTER_VOICE_MODEL: z.string().default("google/gemini-2.5-flash"),
   OPENROUTER_VOICE_FALLBACK_MODEL: z.string().default("openai/gpt-4.1-mini"),

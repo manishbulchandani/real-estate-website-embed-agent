@@ -14,6 +14,8 @@ interface PreferencesContextType {
   setIsDrawerOpen: (isOpen: boolean) => void;
   sessionId: string;
   startNewSession: () => void;
+  selectedLanguage: string;
+  setSelectedLanguage: (lang: string) => void;
 }
 
 const PreferencesContext = createContext<PreferencesContextType | undefined>(undefined);
@@ -24,6 +26,14 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
   useEffect(() => {
     localStorage.setItem('chatSessionId', sessionId);
   }, [sessionId]);
+
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
+    return localStorage.getItem('selectedLanguage') || localStorage.getItem('voiceSelectedLanguage') || 'Hinglish';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('selectedLanguage', selectedLanguage);
+  }, [selectedLanguage]);
 
   const [shortlisted, setShortlisted] = useState<string[]>([]);
   const [notInterested, setNotInterested] = useState<string[]>([]);
@@ -128,7 +138,9 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
       isDrawerOpen,
       setIsDrawerOpen,
       sessionId,
-      startNewSession
+      startNewSession,
+      selectedLanguage,
+      setSelectedLanguage
     }}>
       {children}
     </PreferencesContext.Provider>
