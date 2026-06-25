@@ -216,6 +216,15 @@ export const voiceAgentDefinition = defineAgent({
 
     const langConfig = LANGUAGE_CONFIGS[language] || LANGUAGE_CONFIGS.Hinglish;
 
+    let aiPitchInstruction = "";
+    if (language === "English") {
+      aiPitchInstruction = "The ai_pitch for every property must be strictly in English only (e.g. 'This property is in Kharghar, very spacious and close to the metro.').";
+    } else if (language === "Marathi") {
+      aiPitchInstruction = "The ai_pitch for every property must be in Marathi sound/style written in the English/Roman alphabet only — never Devanagari (e.g. 'He property Kharghar madhye ahe, khup spacious ahe ani metro javal ahe.').";
+    } else {
+      aiPitchInstruction = "The ai_pitch for every property must be in Hinglish sound/style written in the English/Roman alphabet only — never Devanagari (e.g. 'Yeh property Kharghar mein hai, very spacious aur metro ke paas.').";
+    }
+
     // ── SYSTEM PROMPT ────────────────────────────────────────────────────────
     // Kept deliberately SHORT. Long prompts cause Gemini to over-reason and
     // create conflicting rule prioritization. Each rule here is a hard constraint.
@@ -244,7 +253,7 @@ SEARCH STRATEGY (follow strictly):
 
 DISPLAY RULE:
 - Call display_recommended_properties only for non-probe results.
-- ai_pitch field must be pure Hinglish in Roman script only (e.g. "Yeh property Chembur mein hai"). Never Devanagari in ai_pitch.
+- \${aiPitchInstruction}
 
 KNOWLEDGE & PERSONA:
 - Use your internal knowledge to answer real estate questions even if the DB lacks info.
@@ -325,12 +334,12 @@ KNOWLEDGE & PERSONA:
     });
 
     const displayPropertiesToolTool = llm.tool({
-      description: "Display property recommendations on screen. Call this after a non-probe property_search. The ai_pitch for every property must be Hinglish written in English alphabet only — never Devanagari.",
+      description: `Display property recommendations on screen. Call this after a non-probe property_search. \${aiPitchInstruction}`,
       parameters: z.object({
         properties: z.array(
           z.object({
             id: z.string(),
-            ai_pitch: z.string().describe("1-2 sentence pitch in Hinglish Roman script. Example: 'Yeh 3 BHK Kharghar mein hai, very spacious aur metro ke paas.'"),
+            ai_pitch: z.string().describe(`1-2 sentence pitch for the property. \${aiPitchInstruction}`),
           }),
         ),
       }),
