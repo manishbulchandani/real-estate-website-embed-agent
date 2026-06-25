@@ -9,6 +9,7 @@ import { ChatSession } from "../agent/models/chatSession.model";
 import { z } from "zod";
 import { env } from "../../config/env.config";
 import connectDB from "../../config/db.config";
+import { hybridPropertySearch } from "../agent/tools/hybridPropertySearch.tool";
 
 type PropertyRecord = {
   id: string;
@@ -93,27 +94,72 @@ interface LanguageConfig {
   name: string;
   greeting: string;
   systemInstruction: string;
+  // STT language code: hi-Latn = Hindi phonetics in Roman script (perfect for Hinglish)
+  // en-IN = Indian English, mr = Marathi
+  sttLanguage: string;
+  // ElevenLabs TTS language code
+  ttsLanguage: string;
 }
 
 export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
   Hinglish: {
-    name: "Hindi mixed with natural English words (Hinglish)",
+    name: "Hinglish (Hindi + English)",
     greeting: "नमस्ते! मैं Shriya हूँ, आपकी virtual real estate assistant. मैं आपकी कैसे मदद कर सकती हूँ?",
-    systemInstruction: `You MUST respond in natural conversational Hindi mixed with English words (written in Devanagari script for Hindi words, e.g. 'नमस्ते', 'मैं', 'हूँ', and English script for English words like 'options', 'available', 'property'). Never write Hindi words in the Roman alphabet.
-Example of a GOOD spoken response: "Navi Mumbai में हमारे पास कुछ options available हैं। आप कितने BHK की property देख रहे हैं?"`
+    systemInstruction: `Respond in natural Hinglish: Hindi words in Devanagari (e.g. नमस्ते, मैं, हूँ, है) and English words in English script (options, available, property, BHK). Never write Hindi words in Roman letters.
+Good example: "Navi Mumbai में हमारे पास कुछ options available हैं। आप कितने BHK की property देख रहे हैं?"`,
+    sttLanguage: "hi",      // Deepgram hi = Hindi, handles Hinglish speech well with nova-2-general
+    ttsLanguage: "hi",
   },
   English: {
     name: "English",
     greeting: "Hello! I am Shriya, your virtual real estate assistant. How can I help you today?",
-    systemInstruction: `You MUST respond entirely in natural, conversational English. Under no circumstances should you output any Hindi or Marathi words.`
+    systemInstruction: `Respond entirely in natural, conversational English. No Hindi or Marathi words.`,
+    sttLanguage: "en-IN",   // Indian English variant - handles Indian accents and proper nouns better
+    ttsLanguage: "en",
   },
   Marathi: {
-    name: "Marathi mixed with natural English words",
+    name: "Marathi + English",
     greeting: "नमस्कार! मी Shriya आहे, तुमची virtual real estate assistant. मी तुम्हाला कशी मदत करू शकते?",
-    systemInstruction: `You MUST respond in natural conversational Marathi mixed with English words (written in Devanagari script for Marathi words, e.g. 'नमस्कार', 'मी', 'आहे', and English script for English words like 'options', 'available', 'property'). Never write Marathi words in the Roman alphabet.
-Example of a GOOD spoken response: "Navi Mumbai मध्ये आमच्याकडे काही options available आहेत। आपण किती BHK ची property पाहत आहात?"`
-  }
+    systemInstruction: `Respond in natural Marathi mixed with English: Marathi words in Devanagari (e.g. नमस्कार, मी, आहे) and English words in English script (options, available, property, BHK). Never write Marathi words in Roman letters.
+Good example: "Navi Mumbai मध्ये आमच्याकडे काही options available आहेत. आपण किती BHK ची property पाहत आहात?"`,
+    sttLanguage: "mr",
+    ttsLanguage: "hi",      // ElevenLabs does not have separate Marathi model; hi is closest
+  },
 };
+
+// Deepgram keyword boosting for Indian real estate domain.
+// Weighted tuples: [term, boost]. Boost 10-15 forces the acoustic model to prefer these terms.
+// This directly solves misrecognitions like "four GHK" → "4 BHK", "लवई" → "Navi".
+const STT_KEYWORDS: [string, number][] = [
+  // BHK variants
+  ["BHK", 15], ["1BHK", 15], ["2BHK", 15], ["3BHK", 15], ["4BHK", 15],
+  ["1 BHK", 15], ["2 BHK", 15], ["3 BHK", 15], ["4 BHK", 15],
+  // Navi Mumbai localities
+  ["Navi Mumbai", 15], ["Mumbai", 10],
+  ["Airoli", 15], ["Seawoods", 15], ["Kharghar", 15], ["Vashi", 15],
+  ["Nerul", 15], ["Panvel", 15], ["Belapur", 15], ["Ghansoli", 15],
+  ["Koparkhairane", 15], ["Kamothe", 15], ["Taloja", 15], ["Ulwe", 15],
+  ["Sanpada", 15], ["Juinagar", 15], ["CBD Belapur", 15], ["Seawoods Darave", 15],
+  ["Dronagiri", 15],
+  // Mumbai localities
+  ["Thane", 12], ["Mulund", 12], ["Bhandup", 12], ["Ghatkopar", 12],
+  ["Kurla", 12], ["Chembur", 12], ["Dadar", 12], ["Bandra", 12],
+  ["Andheri", 12], ["Borivali", 12], ["Kalyan", 12], ["Dombivli", 12],
+  // Property types
+  ["flat", 10], ["flats", 10], ["apartment", 10], ["penthouse", 12],
+  ["villa", 12], ["villas", 12], ["studio", 10], ["row house", 12],
+  ["duplex", 12], ["builder floor", 12],
+  // Finance
+  ["crore", 12], ["lakh", 12], ["lakhs", 12], ["EMI", 12],
+  ["RERA", 12], ["sqft", 12], ["sq ft", 12], ["square feet", 12],
+  // Intents
+  ["possession", 10], ["ready to move", 10], ["under construction", 10],
+  ["shortlist", 10], ["book visit", 10], ["site visit", 10],
+  // Agent name
+  ["Shriya", 15],
+];
+
+
 
 export class RealEstateVoiceAgent extends voice.Agent {
   constructor(instructions: string, tools: llm.ToolContext) {
@@ -130,7 +176,18 @@ export class RealEstateVoiceAgent extends voice.Agent {
  */
 export const voiceAgentDefinition = defineAgent({
   prewarm: async (proc) => {
-    proc.userData.vad = await silero.VAD.load();
+    // Tuned VAD:
+    // - activationThreshold 0.6: rejects background noise (higher = more selective)
+    // - minSpeechDuration 0.1: minimum speech burst to count (prevents click triggers)
+    // - minSilenceDuration 0.55: wait 550ms of silence before marking speech as ended
+    //   (Hindi/Marathi speakers naturally pause; too short cuts them off mid-sentence)
+    // - prefixPaddingDuration 0.3: capture 300ms before speech was detected (no clipped words)
+    proc.userData.vad = await silero.VAD.load({
+      activationThreshold: 0.7, // Increased from 0.6 to ignore more background static
+      minSpeechDuration: 0.15,  // Increased from 0.1 to avoid click triggers keeping turns open
+      minSilenceDuration: 0.60,
+      prefixPaddingDuration: 0.3,
+    });
   },
   entry: async (ctx) => {
     if (mongoose.connection.readyState === 0) {
@@ -141,52 +198,105 @@ export const voiceAgentDefinition = defineAgent({
     const recommendedById = new Map<string, PropertyRecord>();
     const encoder = new TextEncoder();
 
-    // Property search tool - queries backend recommendations endpoint
+    // Resolve language and sessionId from room name pattern: voice-{Lang}-{sessionId}
+    const roomName = ctx.job.room?.name || ctx.room?.name;
+    let language = "Hinglish"; // default
+    if (roomName && typeof roomName === "string") {
+      const match = String(roomName).match(/^voice-(Hinglish|English|Marathi|.+?)-(.+)$/);
+      if (match) {
+        language = match[1];
+        resolvedSessionId = match[2];
+      } else {
+        const fallbackMatch = String(roomName).match(/^voice-(.+)$/);
+        if (fallbackMatch) resolvedSessionId = fallbackMatch[1];
+      }
+    }
+
+    console.log(`[Voice Agent] entry triggered. roomName: "${roomName}", language: "${language}", sessionId: "${resolvedSessionId}"`);
+
+    const langConfig = LANGUAGE_CONFIGS[language] || LANGUAGE_CONFIGS.Hinglish;
+
+    // ── SYSTEM PROMPT ────────────────────────────────────────────────────────
+    // Kept deliberately SHORT. Long prompts cause Gemini to over-reason and
+    // create conflicting rule prioritization. Each rule here is a hard constraint.
+    const instructions = `You are Shriya, a warm, professional real estate voice advisor. Help users find suitable homes through natural conversation.
+
+LANGUAGE & TONE (NON-NEGOTIABLE):
+- ${langConfig.systemInstruction}
+- Proper nouns, city names, BHK, EMI, RERA always stay in English script regardless.
+- Numbers must ALWAYS be spelled out as English words (e.g. "one", "two", "three", "four") instead of digits (e.g. "1", "2"). Do NOT use Devanagari numbers.
+- Keep sentences under 12 words — this is spoken audio.
+- Plain text only. No emojis, no markdown, no asterisks, no exclamation marks, no lists.
+- Never output reasoning or internal monologue. Start directly with your spoken words.
+
+MANDATORY FILLER PHRASES (CRITICAL VOICE RULE):
+You are a voice agent. Dead silence during tool calls is a critical failure.
+Whenever you decide to call the property_search tool, you MUST first output a short, warm filler sentence (AS PLAIN TEXT) BEFORE you emit the tool call JSON.
+CRITICAL: This filler sentence MUST be dynamically generated, context-aware, and spoken in the EXACT SAME LANGUAGE and tone as the conversation (e.g., if the user speaks Hindi, say something naturally like "जी, मैं नवी मुंबई के लिए ऑप्शंस चेक कर रही हूँ..."). NEVER just copy a fixed English example.
+DO NOT put the filler phrase inside the tool parameters. You must speak it in the main conversation flow before the tool executes.
+
+SEARCH STRATEGY (follow strictly):
+1. The moment a user mentions a city, call property_search(city, isInventoryProbe:true, maxResults:3). REMEMBER THE FILLER.
+2. If probe returns count>0: say options exist, ask ONE follow-up question (BHK or budget, not both).
+3. If probe returns count=0: do NOT ask for BHK or budget. Tell user no listings there, suggest other available cities.
+4. Once BHK or budget is known: call property_search with those filters (non-probe), then call display_recommended_properties.
+5. REUSE CONTEXT: before re-searching, check conversation history for matching results.
+
+DISPLAY RULE:
+- Call display_recommended_properties only for non-probe results.
+- ai_pitch field must be pure Hinglish in Roman script only (e.g. "Yeh property Chembur mein hai"). Never Devanagari in ai_pitch.
+
+KNOWLEDGE & PERSONA:
+- Use your internal knowledge to answer real estate questions even if the DB lacks info.
+- For demo purposes: generate realistic dummy answers for possession dates, RERA numbers, amenity details if not available.
+- Suggest a site visit only when the user shows strong interest, not on the first message.
+- Ask for name and phone before calling book_visit.
+- Ask only ONE question at a time to keep it natural.`;
+
+    // ── TOOLS ─────────────────────────────────────────────────────────────────
+
     const propertySearchTool = llm.tool({
-      description:
-        "Search for properties using natural language query and/or structured filters (city, locality, BHK, budget range).",
+      description: "Search for properties with filters. For city-only checks use isInventoryProbe:true. For full search with BHK/budget, omit isInventoryProbe.",
       parameters: z.object({
-        query: z.string().optional().describe("Free-form text query, e.g. '3 BHK near metro' or 'luxurious villa'"),
-        filters: z
-          .object({
-            bhk: z.union([z.number(), z.array(z.number())]).optional().describe("Number of bedrooms, e.g. 2, 3"),
-            budgetMin: z.number().optional().describe("Minimum budget in INR"),
-            budgetMax: z.number().optional().describe("Maximum budget in INR"),
-            locality: z.string().optional().describe("Specific locality or area"),
-            city: z.string().optional().describe("City name"),
-            listing_type: z.union([z.string(), z.array(z.string())]).optional().describe("'Buy' or 'Rent'"),
-            suitability: z.array(z.string()).optional().describe("E.g. 'Family', 'Bachelors', 'Investment'"),
-          })
-          .optional().describe("Structured filters to refine the search"),
-        maxResults: z.number().min(1).max(20).optional().describe("Maximum number of results to return (default 10)"),
-        excludeIds: z.array(z.string()).optional().describe("List of Property IDs to exclude from search results"),
-        isInventoryProbe: z.boolean().optional().describe("CRITICAL: Set to true if this is a silent inventory probe (e.g. checking city availability before asking for BHK/budget). When true, returns ONLY a count, physically preventing property cards from displaying prematurely."),
+        query: z.string().optional().describe("Free-form text query e.g. '3 BHK near metro'"),
+        filters: z.object({
+          bhk: z.union([z.number(), z.array(z.number())]).optional().describe("Number of bedrooms"),
+          budgetMin: z.number().optional().describe("Minimum budget in INR"),
+          budgetMax: z.number().optional().describe("Maximum budget in INR"),
+          locality: z.string().optional().describe("Specific locality"),
+          city: z.string().optional().describe("City name"),
+          listing_type: z.union([z.string(), z.array(z.string())]).optional().describe("Buy or Rent"),
+          suitability: z.array(z.string()).optional().describe("Family, Bachelors, Investment"),
+        }).optional(),
+        maxResults: z.number().min(1).max(20).optional(),
+        excludeIds: z.array(z.string()).optional(),
+        isInventoryProbe: z.boolean().optional().describe("Set true to check city inventory only. Returns count+BHK summary, no cards."),
       }),
       execute: async (args) => {
         try {
-          // Add a delay to allow the agent's generated filler phrase (e.g. "Let me check...")
-          // to fully finish playing via TTS before the search results come back.
-          // This prevents the response from cutting off the filler phrase.
-          if (!args.isInventoryProbe) {
-            await new Promise((resolve) => setTimeout(resolve, 3000));
-          }
+          console.log(`[Voice Agent] property_search triggered.`);
+          console.time(`[Voice Agent] property_search duration (${args.query || 'probe'})`);
 
           const searchPayload = buildVoiceSearchPayload(args);
-          const apiUrl = `http://localhost:${env.PORT}/api/v1/voice/recommendations`;
+          const rawProperties = await hybridPropertySearch({
+            query: searchPayload.query,
+            filters: searchPayload.filters,
+            maxResults: searchPayload.maxResults || 10,
+            excludeIds: searchPayload.excludeIds,
+          });
+          
+          const properties = (rawProperties ?? []) as PropertyRecord[];
+          console.timeEnd(`[Voice Agent] property_search duration (${args.query || 'probe'})`);
+          console.log(`[Voice Agent] property_search found ${properties.length} results.`);
 
-          const response = await axios.post(apiUrl, searchPayload, { timeout: 15000 });
-          const properties = (response.data?.properties ?? []) as PropertyRecord[];
-
-          // Cache properties so we can enrich them later
           for (const property of properties) {
             recommendedById.set(property.id, property);
           }
 
           if (args.isInventoryProbe) {
-            const uniqueBhks = Array.from(new Set(properties.map(r => r.bhk).filter(b => typeof b === 'number' && b > 0))).sort((a, b) => a - b);
+            const uniqueBhks = Array.from(new Set(properties.map(r => r.bhk).filter(b => typeof b === "number" && b > 0))).sort((a, b) => a - b);
             const uniqueLocalities = Array.from(new Set(properties.map(r => r.locality).filter(Boolean)));
             const uniquePropertyTypes = Array.from(new Set(properties.map(r => r.propertyType).filter(Boolean)));
-
             return {
               count: properties.length,
               hasListings: properties.length > 0,
@@ -196,7 +306,7 @@ export const voiceAgentDefinition = defineAgent({
             };
           }
 
-          const result = {
+          return {
             properties: properties.map((p) => ({
               id: p.id,
               title: p.title,
@@ -207,8 +317,6 @@ export const voiceAgentDefinition = defineAgent({
               images: p.images?.slice(0, 2),
             })),
           };
-
-          return result;
         } catch (error) {
           console.error("Property search failed:", error);
           return { properties: [], error: "Could not fetch properties" };
@@ -216,15 +324,13 @@ export const voiceAgentDefinition = defineAgent({
       },
     });
 
-    // Display properties tool - publishes recommendations to frontend via data channel
     const displayPropertiesToolTool = llm.tool({
-      description:
-        "Display selected property recommendations on screen. Call this after property_search. CRITICAL: The ai_pitch field for every property must be written in the Roman/English alphabet only (transliterated Hinglish style). NEVER use Devanagari characters in ai_pitch.",
+      description: "Display property recommendations on screen. Call this after a non-probe property_search. The ai_pitch for every property must be Hinglish written in English alphabet only — never Devanagari.",
       parameters: z.object({
         properties: z.array(
           z.object({
             id: z.string(),
-            ai_pitch: z.string().describe("A compelling 1-2 sentence pitch. MUST BE WRITTEN IN HINGLISH (Hindi words written using the English alphabet). CRITICAL: DO NOT use Devanagari characters, and DO NOT translate to pure English. Example: 'Yeh 1.5 BHK apartment Airoli mein hai aur aapke liye perfect hai.'"),
+            ai_pitch: z.string().describe("1-2 sentence pitch in Hinglish Roman script. Example: 'Yeh 3 BHK Kharghar mein hai, very spacious aur metro ke paas.'"),
           }),
         ),
       }),
@@ -240,16 +346,8 @@ export const voiceAgentDefinition = defineAgent({
         if (enriched.length > 0 && ctx.room) {
           try {
             await ctx.room.localParticipant?.publishData(
-              encoder.encode(
-                JSON.stringify({
-                  type: "voice_properties",
-                  properties: enriched,
-                }),
-              ),
-              {
-                reliable: true,
-                topic: "property_recommendations",
-              },
+              encoder.encode(JSON.stringify({ type: "voice_properties", properties: enriched })),
+              { reliable: true, topic: "property_recommendations" },
             );
           } catch (error) {
             console.error("Failed to publish properties:", error);
@@ -260,93 +358,60 @@ export const voiceAgentDefinition = defineAgent({
       },
     });
 
-    // Booking visit tool
     const bookVisitTool = llm.tool({
-      description: `Book a site visit or schedule a developer call for a specific property.
-      
-Before calling this tool, you MUST gather:
-1. The property name and property ID of interest.
-2. The user's preferred date (e.g., 'next Friday', '2026-06-25').
-3. The preferred time slot (e.g., '11:00 AM', 'Morning', 'Evening').
-4. The user's name.
-5. The user's phone number.
-
-Do NOT guess or invoke this tool if any of these five details are missing. Ask the user for the missing details first.`,
+      description: `Book a site visit. Gather ALL of: propertyId, propertyName, date, timeSlot, userName, userPhone before calling.`,
       parameters: z.object({
-        propertyId: z.string().describe("The ID of the property to book a visit for"),
-        propertyName: z.string().describe("The name of the property"),
-        date: z.string().describe("The preferred date of the visit"),
-        timeSlot: z.string().describe("The preferred time slot/time of day"),
-        userName: z.string().describe("The user's name"),
-        userPhone: z.string().describe("The user's phone number")
+        propertyId: z.string(),
+        propertyName: z.string(),
+        date: z.string().describe("Preferred visit date"),
+        timeSlot: z.string().describe("Preferred time e.g. 11:00 AM or Morning"),
+        userName: z.string(),
+        userPhone: z.string(),
       }),
       execute: async (args) => {
         const bookingId = "BK-" + Math.floor(1000 + Math.random() * 9000);
-        const booking = {
-          ...args,
-          bookingId,
-          status: "Confirmed" as const
-        };
+        const booking = { ...args, bookingId, status: "Confirmed" as const };
 
         if (ctx.room) {
           try {
             await ctx.room.localParticipant?.publishData(
-              encoder.encode(
-                JSON.stringify({
-                  type: "voice_booking",
-                  booking: booking
-                })
-              ),
-              {
-                reliable: true,
-                topic: "property_recommendations"
-              }
+              encoder.encode(JSON.stringify({ type: "voice_booking", booking })),
+              { reliable: true, topic: "property_recommendations" },
             );
           } catch (e) {
             console.error("Failed to publish booking data:", e);
           }
         }
 
-        // Persist booking to ChatSession database
         if (resolvedSessionId) {
           try {
             await ChatSession.findOneAndUpdate(
               { sessionId: resolvedSessionId },
               {
                 $setOnInsert: { sessionId: resolvedSessionId },
-                $push: {
-                  messages: {
-                    id: crypto.randomUUID(),
-                    sender: "agent",
-                    type: "booking",
-                    data: booking,
-                  },
-                },
+                $push: { messages: { id: crypto.randomUUID(), sender: "agent", type: "booking", data: booking } },
               },
               { upsert: true }
             ).exec();
-            console.log(`[Voice] Persisted booking ${bookingId} to ChatSession:`, resolvedSessionId);
           } catch (dbErr) {
-            console.error("[Voice] Failed to save booking to ChatSession:", dbErr);
+            console.error("[Voice] Failed to save booking:", dbErr);
           }
         }
 
         return booking;
-      }
+      },
     });
 
-    // Manage preference tool
     const managePreferenceToolTool = llm.tool({
-      description: "Add or remove a property from the user's shortlist/wishlist, or mark it as not interested. Call this when the user explicitly asks to shortlist/wishlist a property, or when they say they don't like a property. You can also proactively offer to shortlist properties they seem very interested in.",
+      description: "Shortlist or mark a property as not interested based on user feedback.",
       parameters: z.object({
-        propertyId: z.string().describe("The ID of the property"),
-        action: z.enum(["shortlist", "remove_shortlist", "not_interested", "remove_not_interested"]).describe("The action to perform"),
+        propertyId: z.string(),
+        action: z.enum(["shortlist", "remove_shortlist", "not_interested", "remove_not_interested"]),
       }),
       execute: async (args) => {
         if (!resolvedSessionId) {
-          return { error: "Cannot manage preference because sessionId is missing." };
+          return { error: "Cannot manage preference: sessionId missing." };
         }
-
         try {
           const session = await ChatSession.findOneAndUpdate(
             { sessionId: resolvedSessionId },
@@ -354,8 +419,8 @@ Do NOT guess or invoke this tool if any of these five details are missing. Ask t
             { upsert: true, new: true }
           );
 
-          let updatedShortlist = new Set(session.shortlistedProperties || []);
-          let updatedNotInterested = new Set(session.notInterestedProperties || []);
+          const updatedShortlist = new Set(session.shortlistedProperties || []);
+          const updatedNotInterested = new Set(session.notInterestedProperties || []);
 
           if (args.action === "shortlist") {
             updatedShortlist.add(args.propertyId);
@@ -373,175 +438,189 @@ Do NOT guess or invoke this tool if any of these five details are missing. Ask t
           session.notInterestedProperties = Array.from(updatedNotInterested);
           await session.save();
 
-          // Publish data to frontend
           if (ctx.room) {
             await ctx.room.localParticipant?.publishData(
-              encoder.encode(
-                JSON.stringify({
-                  type: "voice_preference_update",
-                  preferences: {
-                    shortlistedProperties: session.shortlistedProperties,
-                    notInterestedProperties: session.notInterestedProperties
-                  }
-                })
-              ),
-              { reliable: true, topic: "property_preferences" }
+              encoder.encode(JSON.stringify({
+                type: "voice_preference_update",
+                preferences: {
+                  shortlistedProperties: session.shortlistedProperties,
+                  notInterestedProperties: session.notInterestedProperties,
+                },
+              })),
+              { reliable: true, topic: "property_preferences" },
             );
           }
 
           return { success: true, action: args.action, propertyId: args.propertyId };
         } catch (e) {
           console.error("Failed to manage property preference:", e);
-          return { error: "Failed to manage property preference due to an internal error." };
+          return { error: "Failed to manage property preference." };
         }
-      }
+      },
     });
 
-    const roomName = ctx.job.room?.name || ctx.room?.name;
-    let language = "Hinglish"; // default
-    if (roomName && typeof roomName === 'string') {
-      const match = String(roomName).match(/^voice-(Hinglish|English|Marathi|.+?)-(.+)$/);
-      if (match) {
-        language = match[1];
-        resolvedSessionId = match[2];
-      } else {
-        const fallbackMatch = String(roomName).match(/^voice-(.+)$/);
-        if (fallbackMatch) resolvedSessionId = fallbackMatch[1];
-      }
-    }
+    const getAvailableCitiesTool = llm.tool({
+      description: `Returns the exact list of cities that have active property listings in the database.
 
-    console.log(`[Voice Agent] entry triggered. raw roomName: "${roomName}" (from job: "${ctx.job.room?.name}", from room: "${ctx.room?.name}")`);
-    console.log(`[Voice Agent] Resolved connection language: "${language}", sessionId: "${resolvedSessionId}"`);
+WHEN TO CALL THIS (mandatory, not optional):
+- Immediately after any property_search probe returns 0 results — before responding to the user.
+- Whenever the user asks "which cities do you have?", "where are you available?", "do you have anywhere else?"
 
-    const langConfig = LANGUAGE_CONFIGS[language] || LANGUAGE_CONFIGS.Hinglish;
+FORBIDDEN behavior (never do this instead of calling this tool):
+- Do NOT suggest Bangalore, Hyderabad, Delhi, Pune, Goa, or any other city from your training knowledge.
+- Do NOT run property_search probes for cities you thought of yourself.
+- Do NOT say "We are available in Mumbai, Bangalore..." without calling this tool first.
 
-    const instructions = `You are Shriya, a friendly and professional real estate voice advisor.
-Your goal is to assist users with their property-related questions and help them find suitable homes through natural conversation.
+CORRECT flow when a city has no results:
+  1. Call get_available_cities.
+  2. Read the { cities } list.
+  3. Tell the user which cities from that list are available.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RULE #1 — LANGUAGE STYLE (NON-NEGOTIABLE):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Selected language/style: ${langConfig.name}.
-- ${langConfig.systemInstruction}
-- The only words that may stay in English regardless of language: property names, locality names, city names, and real estate abbreviations (BHK, EMI, RERA).
-- For voice: keep each sentence short — 12 words or fewer — so it sounds natural when spoken aloud.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Returns: { cities: string[] }`,
+      parameters: z.object({}),
+      execute: async () => {
+        try {
+          const mongooseConnection = mongoose.connection;
+          if (!mongooseConnection.db) {
+            return { cities: [], error: "Database not connected" };
+          }
+          const cities = await mongooseConnection.db
+            .collection("listings")
+            .distinct("location.city");
 
-KNOWLEDGE & PROACTIVITY:
-1. USE YOUR KNOWLEDGE: You have extensive knowledge about real estate, home-buying processes, financial terms (EMI, down payments), and various localities. Use this knowledge to provide helpful, detailed answers.
-2. BE PROACTIVE: If a user asks about a locality, don't just wait for filters—tell them what makes that locality special (amenities, connectivity, lifestyle) based on your knowledge.
-3. NEVER REFUSE: Do NOT say "I don't have a tool for that" or "I am only a real estate advisor." If a question is even remotely related to real estate, lifestyle, or moving, provide a helpful answer using your internal knowledge.
-4. If a user asks something completely unrelated, briefly answer and then politely steer the conversation back to how you can help them find a home.
-5. DEMO MODE & DUMMY ANSWERS: For demo purposes, if the user asks for specific details or information about a property (e.g. amenities, possession date, exact distance to landmarks, specific layout features, or RERA status) and that information is not available in the database, DO NOT say "I don't know" or refuse to answer. Instead, act as a knowledgeable sales agent of that property and generate a realistic, professional-sounding dummy answer on the fly using your internal intelligence. Present it confidently and naturally.
-6. VISIT BOOKING & PROACTIVE CLOSING:
-   - STRATEGIC GOAL: Your ultimate motive is to try to get the sale closed. You must be proactive but strategic. Do NOT suggest booking a site visit on the very first message or on every property search result.
-   - WHEN TO PROPOSE: Suggest booking a site visit or scheduling a developer call when the user shows strong interest in a specific property (e.g., asking detailed questions about layout/amenities/RERA, comparing specific properties, or expressing positive sentiment/approval). Warmly propose: "Would you like to schedule a site visit to experience the project firsthand? Or perhaps we can schedule a quick call with the developer's representative?"
-   - GATHERING INFO: Before calling the 'book_visit' tool, you MUST gather: property name, preferred date (e.g., next Friday, June 20th), preferred time slot (e.g., 11:00 AM, Morning, Evening), user's name, and user's phone number.
-   - ONE AT A TIME: Ask for these missing details naturally, one at a time, to keep the conversation warm and conversational.
-   - FINALIZING: Once all five pieces of information are gathered, call 'book_visit' to confirm. Tell the user it is booked and summarize the details.
-7. SHORTLISTING & PREFERENCES:
-   - If a user expresses strong interest in a property, proactively ask: "Would you like me to add this to your shortlist?"
-   - Use 'manage_preference' to shortlist properties or mark them as not interested based on user feedback.
+          const sorted = cities
+            .filter(Boolean)
+            .map((c) => String(c).trim())
+            .filter((c) => c.length > 0)
+            .sort();
 
-INVENTORY-FIRST SEARCH STRATEGY (CRITICAL — follow this order every time):
-1. The moment a user mentions a city or region of interest, IMMEDIATELY call property_search with ONLY that city as a filter, maxResults: 3, AND set isInventoryProbe: true. This is a silent inventory probe — it runs in the background only and returns ONLY a count.
-2. If the probe returns results (count > 0): Do NOT show any property cards yet. Do NOT call display_recommended_properties. Simply tell the user you have options available in that city and ask ONE follow-up question — either BHK size OR budget, whichever feels most natural.
-3. If the probe returns 0 results: STOP immediately. Do NOT ask for BHK, budget, or any other requirement. Call get_available_cities to get the real list of cities where we have inventory, then tell the user which cities ARE available. Never guess or make up city names.
-4. Only call display_recommended_properties AFTER you have gathered at least the user's BHK preference OR budget. Then run a refined search with those filters and show the results.
-5. REUSE CONTEXT BEFORE RE-SEARCHING: If the user relaxes a constraint (e.g., "forget the budget, show me any 2 BHK" or "ignore BHK, show me anything"), first check whether your earlier search results from this conversation already contain matching properties. If yes, display those without a new search. Only run a new property_search if the earlier results genuinely do not cover the relaxed request.
-6. Never say "we don't have listings" for a city that your earlier probe already confirmed has inventory. That confirmation stays valid for the whole conversation.
-7. FILLER PHRASES FOR SEARCHES: Whenever you are about to call the \`property_search\` tool (except for silent inventory probes), you MUST first generate a short, natural filler phrase in your conversational language to let the user know you are looking (e.g., "Give me a moment while I check the options for you...", "Let me see what we have in that area...", "Just a second, finding properties in [Location]..."). Generate this phrase situationally based on the context. DO NOT say this for isInventoryProbe.
-
-CONVERSATIONAL GUIDELINES:
-1. Be human-like, warm, and conversational.
-2. HANDLING GREETINGS: Greet users warmly in the selected language. Your default first greeting message MUST be exactly: "${langConfig.greeting}".
-   - CRITICAL: Do NOT ask for preferences in your first response to a greeting. Wait for them to express interest.
-3. PREFERENCE GATHERING: Gather requirements only after confirming inventory exists for the requested location (see INVENTORY-FIRST above).
-4. ONE AT A TIME: Ask only ONE question at a time to keep it natural.
-5. Be polite, warm, and concise.
-6. PLAIN TEXT & NO EMOJIS (CRITICAL):
-   - DO NOT use emojis (e.g. 🏠, ✨).
-   - DO NOT use markdown formatting like bold (**text**) or lists.
-   - DO NOT use special characters like asterisks (*), hashtags (#), or exclamation marks (!).
-   - Use strictly plain spoken text with ONLY basic punctuation (periods, commas, question marks).
-   - DO NOT output any internal monologue, reasoning, planning, notes, or chain-of-thought (e.g., do NOT write "The user mentioned...", "I need to..."). Start your response directly with the words you want to say to the user.
-7. MODERN LANGUAGE & SCRIPT (CRITICAL):
-   - For your main spoken response: You MUST mix English words (written in the English alphabet) and words of the target language (written in Devanagari script for Hinglish/Marathi) naturally, just like modern urban Indians speak.
-   - CRITICAL PENALTY FOR UI CARDS: The 'ai_pitch' inside 'display_recommended_properties' MUST ONLY use English letters A-Z (Roman script). If you output Hindi/Devanagari characters (e.g., 'यह') in 'ai_pitch', the system will crash. Write it as 'Yeh property Chembur mein hai'.
-
-CRITICAL INSTRUCTIONS:
-1. SEARCH & DISPLAY: Use display_recommended_properties ONLY after a non-probe search (one that returns full property details). Never after an inventory probe. Write a personalized ai_pitch per property.
-2. NO TEXT-ONLY LISTINGS: DO NOT describe a specific property's details in your spoken text without invoking the display_recommended_properties tool. If you are recommending a specific property, you MUST show it on the UI using the tool.
-3. FOLLOW-UPS: Use conversation history to answer questions about specific properties clearly.`;
-
-    const agent = new RealEstateVoiceAgent(instructions, {
-      property_search: propertySearchTool,
-      display_recommended_properties: displayPropertiesToolTool,
-      book_visit: bookVisitTool,
-      manage_preference: managePreferenceToolTool,
+          console.log(`[Tool: get_available_cities] Found ${sorted.length} cities:`, sorted);
+          return { cities: sorted };
+        } catch (e: any) {
+          console.error(`[Tool: get_available_cities] Error:`, e.message);
+          return { cities: [], error: e.message };
+        }
+      },
     });
-
-    const STT_LANGUAGES: Record<string, string> = {
-      Hinglish: "hi",
-      English: "en",
-      Marathi: "mr",
-    };
 
     const vad = ctx.proc.userData.vad as silero.VAD;
     let chatHistoryStr = "";
 
+    const llmInstance = new openai.LLM({
+      model: env.OPENROUTER_VOICE_MODEL,
+      apiKey: env.OPENROUTER_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+      temperature: 0.35,  // Slightly lower: more deterministic for tool calling
+    });
+
     const session = new voice.AgentSession({
       vad,
       stt: new deepgram.STT({
-        model: "nova-2-conversationalai",
-        language: STT_LANGUAGES[language] || "hi",
+        // nova-2-general: the correct model for non-English languages.
+        // nova-2-conversationalai auto-downgrades to nova-2-general for hi/mr anyway (WARN in logs).
+        // Using nova-2-general directly avoids the warning and the performance overhead of the fallback path.
+        model: "nova-2-general",
+        language: langConfig.sttLanguage,
         interimResults: true,
         smartFormat: true,
-        apiKey: env.DEEPGRAM_API_KEY || process.env.DEEPGRAM_API_KEY
+        noDelay: true,          // Minimize STT → LLM latency
+        keywords: STT_KEYWORDS,
+        apiKey: env.DEEPGRAM_API_KEY || process.env.DEEPGRAM_API_KEY,
       }),
-      llm: new openai.LLM({
-        model: env.OPENROUTER_VOICE_MODEL,
-        apiKey: env.OPENROUTER_API_KEY,
-        baseURL: "https://openrouter.ai/api/v1",
-        temperature: 0.4
-      }),
+      llm: llmInstance,
       tts: new elevenlabs.TTS({
         model: "eleven_flash_v2_5",
         apiKey: env.ELEVENLABS_API_KEY || process.env.ELEVENLABS_API_KEY,
-        ...(env.ELEVENLABS_VOICE_ID && { voiceId: env.ELEVENLABS_VOICE_ID }),
-        language: STT_LANGUAGES[language] || "hi",
+        voiceId: env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL", // Default to Sarah (female voice)
+        language: langConfig.ttsLanguage,
+        enableSsmlParsing: false,   // Prevent Devanagari chars from breaking TTS
       }),
       turnHandling: {
         turnDetection: "vad",
         interruption: {
           mode: "vad",
-          minDuration: 300,
-          minWords: 0,
+          minDuration: 500,   // 500ms of continuous speech needed to trigger interruption
+          minWords: 2,        // At least 2 recognized words — prevents noise interruptions
         },
         endpointing: {
           mode: "fixed",
-          minDelay: 500,
+          // LiveKit-side endpointing (on top of Deepgram's):
+          // 700ms min delay gives Hindi/Marathi speakers time for natural pauses.
+          // 2500ms max prevents waiting too long on genuine sentence endings.
+          minDelay: 700,
           maxDelay: 2500,
         },
         preemptiveGeneration: {
-          enabled: false,
+          enabled: false,     // Disabled: prevents LLM from starting before user finishes speaking
         },
       },
+      userAwayTimeout: 10,    // Mark user as "away" after 10s of silence
     });
+
+
+
+    // ── SESSION EVENT HANDLERS ─────────────────────────────────────────────
+
+    session.on(voice.AgentSessionEventTypes.Error, (ev: any) => {
+      const errorMsg = String(ev?.error?.message || ev?.error || "");
+      console.error(`[Voice Agent] Session error: ${errorMsg}`);
+    });
+
+    let awayCount = 0;
+    session.on(voice.AgentSessionEventTypes.UserStateChanged, async (ev: any) => {
+      const newState = ev?.newState;
+      if (newState === "away") {
+        awayCount++;
+        console.log(`[Voice Agent] User away (count: ${awayCount})`);
+
+        if (awayCount === 1) {
+          try {
+            await session.generateReply({
+              instructions: "The user has been silent for a while. Ask them warmly in one short sentence if they are still there or need help.",
+            });
+          } catch (e) {
+            console.error("[Voice Agent] Failed to generate away follow-up:", e);
+          }
+        } else if (awayCount >= 2) {
+          try {
+            await session.generateReply({
+              instructions: "The user has been away for a long time. Say a brief, warm goodbye in one sentence. Tell them they can come back anytime.",
+            });
+          } catch (e) {
+            console.error("[Voice Agent] Failed to generate goodbye:", e);
+          }
+          setTimeout(() => {
+            console.log("[Voice Agent] Disconnecting room after prolonged user absence.");
+            ctx.room?.disconnect();
+          }, 6000);
+        }
+      } else {
+        if (awayCount > 0) {
+          console.log(`[Voice Agent] User returned (was away ${awayCount} times). Resetting.`);
+        }
+        awayCount = 0;
+      }
+    });
+
+    // ── START SESSION ──────────────────────────────────────────────────────
 
     await session.start({
       room: ctx.room,
-      agent,
+      agent: new RealEstateVoiceAgent(instructions, {
+        property_search: propertySearchTool,
+        display_recommended_properties: displayPropertiesToolTool,
+        book_visit: bookVisitTool,
+        manage_preference: managePreferenceToolTool,
+        get_available_cities: getAvailableCitiesTool,
+      }),
     });
 
     await ctx.connect();
 
-    // Load recent chat history only after the room is connected, because the
-    // room context may be unavailable during worker startup.
+    // Load recent chat history after room connects (room metadata is available only post-connect)
     try {
       const metadataStr = ctx.room?.metadata || "{}";
-      console.debug('[Voice] ctx.room.name:', ctx.room?.name, 'ctx.room.metadataRaw:', metadataStr);
-
+      console.debug("[Voice] ctx.room.name:", ctx.room?.name, "metadata:", metadataStr);
       const metadata = JSON.parse(metadataStr);
 
       if (!resolvedSessionId) {
@@ -549,35 +628,40 @@ CRITICAL INSTRUCTIONS:
       }
 
       if (resolvedSessionId) {
-        const session = await ChatSession.findOne({ sessionId: resolvedSessionId }).lean().exec();
-        const historyMessages = (session?.messages ?? [])
-          .filter((message) => message.type === "text" && typeof message.content === "string" && message.content.trim().length > 0)
+        const chatSession = await ChatSession.findOne({ sessionId: resolvedSessionId }).lean().exec();
+        const historyMessages = (chatSession?.messages ?? [])
+          .filter((m) => m.type === "text" && typeof m.content === "string" && m.content.trim().length > 0)
           .slice(-10);
 
         if (historyMessages.length > 0) {
           chatHistoryStr = historyMessages
-            .map((message) => `${message.sender === "user" ? "User" : "Agent"}: ${message.content}`)
+            .map((m) => `${m.sender === "user" ? "User" : "Agent"}: ${m.content}`)
             .join("\n");
         }
 
-        console.debug("[Voice] Resolved sessionId for history:", resolvedSessionId, "loadedMessages:", historyMessages.length);
+        console.debug("[Voice] Resolved sessionId:", resolvedSessionId, "loadedMessages:", historyMessages.length);
       } else {
-        console.debug('[Voice] No sessionId found in room metadata or room name; skipping history load.');
+        console.debug("[Voice] No sessionId found in room name or metadata.");
       }
     } catch (e) {
-      console.error("[Voice] Failed to load chat history for context", e);
+      console.error("[Voice] Failed to load chat history:", e);
     }
 
     const isResumeSession = chatHistoryStr.trim().length > 0;
+    
+    // Instead of generateReply which waits for the LLM, we use session.say to instantly speak
+    // the moment the room connects, removing the perceived frontend loading delay.
+    let greetingText = langConfig.greeting;
+    if (isResumeSession) {
+      if (language === "English") greetingText = "I am here, shall we continue?";
+      else if (language === "Marathi") greetingText = "मी इथे आहे, आपण पुढे जाऊया का?";
+      else greetingText = "हाँ, क्या हम आगे बढ़ें?";
+    }
 
-    // When resuming from history we must be strict: do NOT introduce the agent
-    // or state the agent's name. Produce a single, short acknowledgement
-    // (<= 8 words) and then stop. This prevents the long greeting from being
-    // spoken again when continuing a paused session.
-    await session.generateReply({
-      instructions: isResumeSession
-        ? "Do NOT introduce yourself or state your name. Produce a single brief acknowledgement (no more than 8 words) such as 'I'm here — shall we continue?' and then stop. Do not ask additional questions or re-introduce previous context aloud."
-        : `Greet the user naturally in the selected language style, introducing yourself as Shriya. GREETING MANDATE: You MUST output exactly this greeting phrase: "${langConfig.greeting}". Speak only this greeting and stop.`,
-    });
+    try {
+      await session.say(greetingText);
+    } catch (e) {
+      console.error("[Voice Agent] Failed to say initial greeting:", e);
+    }
   },
 });

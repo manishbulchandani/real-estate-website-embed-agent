@@ -21,6 +21,7 @@ const envSchema = z.object({
   DEEPGRAM_API_KEY: z.string().optional(),
   OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY is required"),
   OPENROUTER_VOICE_MODEL: z.string().default("google/gemini-2.5-flash"),
+  OPENROUTER_VOICE_FALLBACK_MODEL: z.string().default("openai/gpt-4.1-mini"),
   OPENROUTER_CHAT_MODEL: z.string().default("google/gemini-2.5-flash"),
 
   // Internal backend-agent communication
