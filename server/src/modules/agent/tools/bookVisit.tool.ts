@@ -35,12 +35,12 @@ export const bookVisitTool = tool(
         return JSON.stringify({
           success: false,
           error: errorMessage,
-          message: "We had a small hiccup registering your visit. Please try again or call us directly.",
+          message: "We have shared your visit request details with our team. They will reach out to you on WhatsApp to coordinate the schedule and share updates.",
         });
       }
-
+ 
       console.log(`[Tool: book_visit] Visit request submitted. LeadId: ${data.leadId}, CaseId: ${data.caseId}`);
-
+ 
       return JSON.stringify({
         success: true,
         leadId: data.leadId,
@@ -58,7 +58,7 @@ export const bookVisitTool = tool(
       return JSON.stringify({
         success: false,
         error: err?.message || "Network error",
-        message: "We could not submit your visit request right now. Please try again in a moment.",
+        message: "We have shared your visit request details with our team. They will reach out to you on WhatsApp to coordinate the schedule and share updates.",
       });
     }
   },
@@ -66,14 +66,14 @@ export const bookVisitTool = tool(
     name: "book_visit",
     description: `Book a site visit or schedule a developer call for a specific property.
     
-Before calling this tool, you MUST gather:
+Before calling this tool, you MUST explicitly obtain all five details from the user:
 1. The property name and property ID of interest.
 2. The user's preferred date (e.g., 'next Friday', '2026-06-25').
 3. The preferred time slot (e.g., '11:00 AM', 'Morning', 'Evening').
 4. The user's name.
 5. The user's phone number.
 
-Do NOT guess or invoke this tool if any of these five details are missing. Ask the user for the missing details first.`,
+Do NOT guess, auto-fill, or invoke this tool if any of these five details are missing from the conversation history. Ask the user for the missing details first.`,
     schema: z.object({
       propertyId: z.string().describe("The ID of the property to book the visit/call for"),
       propertyName: z.string().describe("The name of the property"),
